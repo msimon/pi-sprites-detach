@@ -15,7 +15,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 - Keychain-backed skills on the Sprite. Gmail, Google Workspace, gcalcli and `ntn` read their credentials from the macOS Keychain, so they will not work there in v1. Later the Sprite gets its own tokens (separate from the laptop's, revocable on their own), and those skills read them from the environment or a file when no Keychain is available.
 - Live streaming of the remote run. That is v2 (`/handoff watch`), but v1 writes the event log it needs.
 - No dedicated Sprite per job. All jobs share one Sprite; the Sprite is a per-job setting, so per-job Sprites can be added later without touching anything else.
-- Uploading extra secrets. Only the model auth and a GitHub token go on the Sprite. Anything else is deferred.
+- Uploading extra secrets. Only the model auth, a GitHub token and the web search keys (`~/.pi/web-search.json`) go on the Sprite. Anything else is deferred.
 
 ## Settled decisions
 
@@ -105,11 +105,12 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, refreshed only when something changed.
 
-1. **What syncs:** `~/.pi/agent/AGENTS.md`, `extensions/`, `skills/`, `loadouts.json`, `subagents.json`, `~/.agents/skills/`, and `settings.json` with extension paths rewritten from `/Users/marc/` to `/home/sprite/` and laptop-only extensions dropped.
+1. **What syncs:** `~/.pi/agent/AGENTS.md`, `extensions/`, `skills/`, `loadouts.json`, `subagents.json`, `~/.agents/skills/`, `~/.pi/web-search.json`, and `settings.json` with extension paths rewritten from `/Users/marc/` to `/home/sprite/` and laptop-only extensions dropped.
 2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches, logs, `.venv`, `node_modules`, `.DS_Store`, lock files.
 3. **When:** on every `/handoff`, hash the synced set and compare it with the hash stored on the Sprite (`~/.handoff/sync/hash`). Unchanged costs one small read. Changed: upload a tarball (`COPYFILE_DISABLE=1 tar --no-xattrs`, `sprite exec --file`), unpack it over the Sprite's home (the Sprite's own skills, `sprite` and `sprite-api-gateway`, stay), write the settings, and run `pi update --extensions` only if the package list changed. `/handoff sync` does the same on demand.
 4. **Per-machine config** in pi-handoff's own config: extensions to leave out on the Sprite (default `pi-cron-jobs`, `pi-reminders`), and tools to install that are not pi packages (`agent-browser` at the laptop's version, later LSPs), applied by the setup script.
 5. **Long installs** (`pi update`, apt) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them.
+6. **Secrets:** `~/.pi/web-search.json` syncs like the rest, but keeps its `0600` permissions and is never logged. The Sprite's own logins (`auth.json`, `gh`) are never overwritten.
 ### Run: `handoff-run <jobId>` (on the Sprite)
 
 1. Create the Tasks API hold `handoff-<jobId>`; start the heartbeat; `trap` deletes it on any exit.
