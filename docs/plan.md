@@ -53,10 +53,10 @@ Code transfer has no safe merge story here, but the conversation can still conti
 
 ```
 pi-handoff/
-  src/local/      pi extension loaded on the laptop: /handoff commands, status line, polling, notifications
+  src/local/      pi extension loaded on the laptop: /handoff commands, config sync, status line, polling, notifications
   src/remote/     pi extension loaded only on the Sprite: briefing, tool filtering, path rewrite, headless ask_user_question override, final status
   bin/handoff-run runner on the Sprite: Tasks API hold, launches pi, writes status
-  setup/          one-time Sprite bootstrap script
+  setup/          Sprite bootstrap script, idempotent: Node, pi, CLI tools, agent-browser + Chrome
   docs/plan.md    this file
 ```
 
@@ -97,9 +97,19 @@ Remote, per job at `~/.handoff/<jobId>/`:
 2. Detect the protocol and prepare the workspace (git protocol steps 1–4, or conversation-only).
 3. Create the job session: a copy of the active branch with a new session id, `parentSession` set to the main session file, and a job name. Record `forkLeafId`. Its header `cwd` stays the original path, which the job sees through its mount namespace. Upload it to the job's state dir with `sprite file push` (create the dir first: push does not); the runner passes it with `--session`.
 4. Prepare dependencies, without installing them. For npm projects (no shared store), the job's checkout gets a copy of the cached `node_modules` for that repo and lockfile hash, if one exists. The agent runs the install itself (see Briefings); after the run, the runner saves the job's `node_modules` as the cache for a new lockfile hash.
-5. Start `handoff-run <jobId>` detached so the `sprite exec` call returns immediately. Default prompt: "Continue where we left off."
-6. Locally: write the job record, show `☁ <n> job(s)` in the status line, start polling. The main session stays fully usable.
+5. Sync the pi config if it changed (see Config sync).
+6. Start `handoff-run <jobId>` detached so the `sprite exec` call returns immediately. Default prompt: "Continue where we left off."
+7. Locally: write the job record, show `☁ <n> job(s)` in the status line, start polling. The main session stays fully usable.
 
+### Config sync
+
+The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, refreshed only when something changed.
+
+1. **What syncs:** `~/.pi/agent/AGENTS.md`, `extensions/`, `skills/`, `loadouts.json`, `subagents.json`, `~/.agents/skills/`, and `settings.json` with extension paths rewritten from `/Users/marc/` to `/home/sprite/` and laptop-only extensions dropped.
+2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches, logs, `.venv`, `node_modules`, `.DS_Store`, lock files.
+3. **When:** on every `/handoff`, hash the synced set and compare it with the hash stored on the Sprite (`~/.handoff/sync/hash`). Unchanged costs one small read. Changed: upload a tarball (`COPYFILE_DISABLE=1 tar --no-xattrs`, `sprite file push`), unpack it over the Sprite's home (the Sprite's own skills, `sprite` and `sprite-api-gateway`, stay), write the settings, and run `pi update --extensions` only if the package list changed. `/handoff sync` does the same on demand.
+4. **Per-machine config** in pi-handoff's own config: extensions to leave out on the Sprite (default `pi-cron-jobs`, `pi-reminders`), and tools to install that are not pi packages (`agent-browser` at the laptop's version, later LSPs), applied by the setup script.
+5. **Long installs** (`pi update`, apt) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them.
 ### Run: `handoff-run <jobId>` (on the Sprite)
 
 1. Create the Tasks API hold `handoff-<jobId>`; start the heartbeat; `trap` deletes it on any exit.
