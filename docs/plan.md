@@ -21,7 +21,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 
 1. **Target**: one shared Sprite (default name `pi-handoff`), several concurrent jobs on it.
 2. **The conversation splits like `/clone`.** A job runs on a copy of the session's active branch with its own session id and a name. The main session continues locally, untouched. On pull, the job's conversation becomes its own local session file with `parentSession` pointing at the main session; it is opened from `/resume`, or immediately with `/handoff pull --switch`.
-3. **The workspace protocol depends on the folder.** A git work tree uses the git protocol below. A non-git folder is still an open question (see Workspace protocols).
+3. **The workspace protocol depends on the folder.** A git work tree uses the git protocol below. A non-git folder is conversation-only in v1 (see Workspace protocols).
 4. **Each job has its own checkout** on the Sprite, under `<jobRoot>` (`~/jobs/<jobId>/`), so several jobs can come from the same folder. Each job's pi runs in its own mount namespace that shows the job's checkout at the original `/Users/marc/...` path (confirmed by S9), so paths in the conversation history stay valid and no path rewriting is needed. The path rule and `tool_call` rewrite below are kept only as a fallback if the namespace ever stops working.
 5. **The remote pi runs headless**, one run at a time per job: `pi -p --mode json --session <file> "<prompt>"`. Runs are sequential within a job and parallel across jobs.
 6. **The Sprite is held awake only while pi works**, via the Sprites Tasks API (5 min expiry, refreshed every 60 s, released on exit). When the run ends the Sprite pauses and stops billing compute.
@@ -45,9 +45,9 @@ Applies when the folder is inside a git work tree with an `origin` remote.
 ### Local worktrees
 
 `pull --worktree` puts every job worktree under one folder: `~/pi-handoff/worktrees/<repo>/<jobId>`, on a local branch `<jobBranch>` tracking `origin`. A worktree can also be added later by hand with `git worktree add <path> <jobBranch>`.
-### Non-git folders (open)
+### Non-git folders
 
-Code transfer has no safe merge story here, but the conversation can still continue (research, planning, writing). Proposed default: conversation-only. The job runs in an empty job folder and the briefing tells it the local files are not available. Open: whether to also offer a tarball of small folders up, with remote files brought back into a separate `<path>.handoff-<job>/` folder on pull, never in place.
+Code transfer has no safe merge story here, but the conversation can still continue (research, planning, writing). v1: conversation-only. The job runs in an empty job folder and the briefing tells it the local files are not available. Later: optionally upload small folders as a tarball, with remote files brought back into a separate `<path>.handoff-<job>/` folder on pull, never in place.
 
 ## Components
 
@@ -84,6 +84,7 @@ Local, one record per job at `~/.pi-handoff/jobs/<jobId>.json`:
 
 Remote, per job at `~/.handoff/<jobId>/`:
 
+- `session.jsonl`: the job's conversation; every run reads and appends to it, and pull downloads it.
 - `status.json`: `{ jobId, state, runStartedAt, runEndedAt, exitCode, lastAssistantText (truncated), question? }`
 - `events.jsonl`: pi's JSON event stream, appended per run (feeds v2 `watch`).
 - `runner.pid`, `runner.log`.
@@ -137,7 +138,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 ### Reply: `/handoff reply [job] <text>`
 
-Refuse while the job is `running`. Start a new run of that job with `<text>` as the prompt. The job defaults to the only one when there is just one.
+Refuse while the job is `running`. Start a new run of that job with `<text>` as the prompt. The run reuses the job's worktree and session file: pi loads the full history from the session file and appends `<text>` as the next user message. The job defaults to the only one when there is just one.
 
 ### Pull: `/handoff pull [job] [--abort] [--switch] [--worktree]`
 
@@ -173,7 +174,6 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 
 ## Open questions
 
-- **Non-git folders**: conversation-only by default; whether to offer a tarball round-trip into a separate folder.
 - **Git repo without `origin`**: refuse, or fall back to `git bundle` over `sprite exec`.
 
 ## v2
@@ -183,6 +183,7 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 - Consider `--mode rpc` on the Sprite so remote dialogs forward to the laptop instead of ending the run.
 - `/handoff cleanup [job]`: remove a job's local worktree and branch once merged or discarded; refuse if it has uncommitted changes.
 - Sprite credentials for Keychain-backed skills: Sprite-only tokens (Gmail app password, Google OAuth, `ntn`) stored on the Sprite, and each skill falls back to an environment variable or file when the Keychain is unavailable. This lifts the "extra secrets" non-goal for those skills.
+- Non-git folders: optional tarball round-trip for small folders, returned into `<path>.handoff-<job>/`, never in place.
 
 ## Cost expectations
 
