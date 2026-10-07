@@ -51,14 +51,32 @@ Code transfer has no safe merge story here, but the conversation can still conti
 
 ## Components
 
+The GitHub repository and an installed copy have different layouts. The repo holds sources; the install is what actually runs, and its Sprite part is a self-contained folder that gets synced as-is.
+
+**Repository** (`msimon/pi-handoff`, installed with `pi install git:github.com/msimon/pi-handoff`):
+
 ```
 pi-handoff/
-  src/local/      pi extension loaded on the laptop: /handoff commands, config sync, status line, polling, notifications
-  src/remote/     pi extension loaded only on the Sprite: briefing, tool filtering, path rewrite, headless ask_user_question override, final status
-  bin/handoff-run runner on the Sprite: Tasks API hold, launches pi, writes status
-  setup/          Sprite bootstrap script, idempotent: Node, pi, CLI tools, agent-browser + Chrome
-  docs/plan.md    this file
+  src/local/        pi extension loaded on the laptop: /handoff commands, config sync, status line, polling, notifications
+  src/remote/       pi extension loaded only on the Sprite: briefing, tool filtering, headless ask_user_question, final status
+  sprite/bin/       handoff-run: Tasks API hold, mount namespace, launches pi, writes status
+  sprite/setup/     bootstrap.sh (base Sprite: Node, pi, CLI tools, locale, git config), install-tool.sh, tools/<name>.sh recipes
+  docs/plan.md      this file
 ```
+
+**Install on the laptop** (`~/.pi-handoff/`):
+
+```
+~/.pi-handoff/
+  config.json       Marc's config (see Config)
+  jobs/             one record per job (see State)
+  sprite/           everything the Sprite needs, built from the package: bin/handoff-run, extension/remote.js
+                    (src/remote bundled into one file), setup/, manifest.json { version, hash }
+```
+
+pi has no install hook, so the local extension builds `~/.pi-handoff/sprite/` itself on `session_start` when it is missing or its `manifest.json` version differs from the package's. Nothing in it is edited by hand.
+
+**On the Sprite**: `~/.pi-handoff/` is an exact copy of the laptop's `~/.pi-handoff/sprite/`, delivered by Config sync and replaced wholesale on update, so it never holds state. Job state lives in `~/.handoff/` (see State).
 
 ## State
 
@@ -133,7 +151,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 2. Detect the protocol and prepare the workspace (git protocol steps 1–4, or conversation-only).
 3. Create the job session: a copy of the active branch with a new session id, `parentSession` set to the main session file, and a job name. Record `forkLeafId`. Its header `cwd` stays the original path, which the job sees through its mount namespace. Upload it to the job's state dir with `sprite exec --file` (S5); the runner passes it with `--session`.
 4. Prepare dependencies, without installing them. For npm projects (no shared store), the job's checkout gets a copy of the cached `node_modules` for that repo and lockfile hash, if one exists. The agent runs the install itself (see Briefings); after the run, the runner saves the job's `node_modules` as the cache for a new lockfile hash.
-5. Sync the pi config if it changed (see Config sync).
+5. Sync the pi config, pi-handoff's Sprite files and `remote.tools` if anything changed (see Config sync). A tool install blocks the push: the status line shows `installing <tool>…` until it finishes (the first `agent-browser` install takes minutes; version bumps are quick).
 6. Start `handoff-run <jobId>` detached so the `sprite exec` call returns immediately. Default prompt: "Continue where we left off."
 7. Locally: write the job record, show `☁ <n> job(s)` in the status line, start polling. The main session stays fully usable.
 
@@ -145,13 +163,14 @@ The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, r
 2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches and logs; they are simply not in `sync.paths`.
 3. **When:** on every `/handoff`, hash the synced set and compare it with the hash stored on the Sprite (`~/.handoff/sync/hash`). Unchanged costs one small read. Changed: upload a tarball (`COPYFILE_DISABLE=1 tar --no-xattrs`, `sprite exec --file`), unpack it over the Sprite's home (the Sprite's own skills, `sprite` and `sprite-api-gateway`, stay), write the settings, and run `pi update --extensions` only if the package list changed. `/handoff sync` does the same on demand.
 4. **Per-machine rules** come from `remote` in the config: `exclude` and `replace` are applied while rewriting `settings.json`; `tools` are compared by version with the laptop and installed by the setup script when they differ.
-5. **Long installs** (`pi update`, apt) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them.
-6. **Secrets:** `~/.pi/web-search.json` syncs like the rest, but keeps its `0600` permissions and is never logged. The Sprite's own logins (`auth.json`, `gh`) are never overwritten.
+5. **Long installs** (`pi update`, apt, `remote.tools`) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them. Tools: the laptop compares each tool's version with the Sprite's (`tool_version` from its recipe, one small exec), then runs `~/.pi-handoff/setup/install-tool.sh <name> <version>` detached, logging to `~/.handoff/setup/<name>.log`, and polls it like a job. A name with no recipe in `setup/tools/` is a warning, not an error.
+6. **pi-handoff's own files:** `~/.pi-handoff/sprite/` is uploaded to the Sprite's `~/.pi-handoff/` with the same hash check (its `manifest.json` hash), so updating pi-handoff on the laptop updates the Sprite on the next `/handoff`.
+7. **Secrets:** `~/.pi/web-search.json` syncs like the rest, but keeps its `0600` permissions and is never logged. The Sprite's own logins (`auth.json`, `gh`) are never overwritten.
 ### Run: `handoff-run <jobId>` (on the Sprite)
 
 1. Create the Tasks API hold `handoff-<jobId>`; start the heartbeat; `trap` deletes it on any exit.
 2. `status.json` → `running`.
-3. Run pi headless in the job's checkout (inside its mount namespace if S9 works) with the remote extension loaded; append stdout to `events.jsonl`.
+3. Run pi headless in the job's checkout (inside its mount namespace if S9 works) with the remote extension loaded (`-e ~/.pi-handoff/extension/remote.js`); append stdout to `events.jsonl`.
 4. On exit: `needs_input` if the remote extension recorded a question, else `done` (exit 0) or `error`. Release the hold. The Sprite pauses ~30 s later.
 
 ### Remote extension
