@@ -1,0 +1,112 @@
+// Local job records: ~/.pi-handoff/jobs/<jobId>.json, one per job.
+
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { JOBS_DIR } from "./paths.ts";
+
+/** `starting` is local only (before the runner is up); the rest mirror status.json. */
+export type JobState = "starting" | "preparing" | "running" | "done" | "needs_input" | "error" | "aborted" | "pulled";
+
+export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running"];
+
+export interface Question {
+  question: string;
+  header?: string;
+  options?: Array<{ label: string; description?: string }>;
+}
+
+export interface LocalJob {
+  jobId: string;
+  jobName: string;
+  sprite: string;
+  protocol: "git" | "none";
+  folder: string;
+  mainSessionFile: string;
+  mainSessionId: string;
+  /** Entry id the job split from. */
+  forkLeafId: string;
+  jobSessionId: string;
+  jobBranch?: string;
+  baseBranch?: string;
+  baseHead?: string;
+  /** Whether uncommitted work went along as a snapshot commit. */
+  snapshot?: boolean;
+  jobRoot: string;
+  /** cmux surface of the window that started the job; notifications go there. */
+  surface?: string;
+  /** pid of the pi that started the job, for windows outside cmux. */
+  ownerPid: number;
+  state: JobState;
+  startedAt: string;
+  updatedAt: string;
+  /** End of the last run, from status.json; identifies the run a notification is for. */
+  runEndedAt?: string;
+  lastAssistantText?: string;
+  questions?: Question[];
+  error?: string;
+}
+
+const jobFile = (jobId: string): string => join(JOBS_DIR, `${jobId}.json`);
+
+export async function readJob(jobId: string): Promise<LocalJob | undefined> {
+  try {
+    return JSON.parse(await readFile(jobFile(jobId), "utf8")) as LocalJob;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function writeJob(job: LocalJob): Promise<void> {
+  await mkdir(JOBS_DIR, { recursive: true });
+  const tmp = `${jobFile(job.jobId)}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(job, null, 2)}\n`);
+  await rename(tmp, jobFile(job.jobId));
+}
+
+export async function listJobs(): Promise<LocalJob[]> {
+  let names: string[];
+  try {
+    names = await readdir(JOBS_DIR);
+  } catch {
+    return [];
+  }
+  const jobs: LocalJob[] = [];
+  for (const name of names) {
+    if (!/^h\d+\.json$/.test(name)) continue;
+    const job = await readJob(name.slice(0, -5));
+    if (job !== undefined) jobs.push(job);
+  }
+  return jobs.sort((a, b) => Number(a.jobId.slice(1)) - Number(b.jobId.slice(1)));
+}
+
+/** Reserve the next job id `h<n>` by creating its record exclusively. */
+export async function reserveJobId(): Promise<string> {
+  await mkdir(JOBS_DIR, { recursive: true });
+  const taken = (await readdir(JOBS_DIR)).map((n) => /^h(\d+)\.json$/.exec(n)?.[1]).filter((n) => n !== undefined);
+  let n = Math.max(0, ...taken.map(Number)) + 1;
+  for (;;) {
+    try {
+      await writeFile(jobFile(`h${n}`), "{}\n", { flag: "wx" });
+      return `h${n}`;
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      n++;
+    }
+  }
+}
+
+/**
+ * Claim the notification for one run of a job. Only the first window to claim it
+ * notifies, so several open pi windows never notify twice.
+ */
+export async function claimNotification(job: LocalJob): Promise<boolean> {
+  const dir = join(JOBS_DIR, "notified");
+  await mkdir(dir, { recursive: true });
+  const key = `${job.jobId}-${(job.runEndedAt ?? job.updatedAt).replace(/[^\w-]/g, "")}`;
+  try {
+    await writeFile(join(dir, key), `${process.pid}\n`, { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
