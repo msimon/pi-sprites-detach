@@ -12,9 +12,9 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 
 - Moving the agent mid-run. Handoff happens between runs: pi must be idle (or the current run aborted) first.
 - Merging conversations or code. A handoff splits off a job; the main session and the original working tree are never modified by it.
-- Remote-only tools. Keychain-backed skills (Gmail, Google Workspace, gcalcli, `ntn`) will not work on the Sprite. Accepted.
+- Keychain-backed skills on the Sprite. Gmail, Google Workspace, gcalcli and `ntn` read their credentials from the macOS Keychain, so they will not work there in v1. Later the Sprite gets its own tokens (separate from the laptop's, revocable on their own), and those skills read them from the environment or a file when no Keychain is available.
 - Live streaming of the remote run. That is v2 (`/handoff watch`), but v1 writes the event log it needs.
-- One Sprite per job. One shared Sprite runs several jobs; the Sprite is a per-job setting so this can change later without touching anything else.
+- No dedicated Sprite per job. All jobs share one Sprite; the Sprite is a per-job setting, so per-job Sprites can be added later without touching anything else.
 - Uploading extra secrets. Only the model auth and a GitHub token go on the Sprite. Anything else is deferred.
 
 ## Settled decisions
@@ -27,7 +27,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 6. **The Sprite is held awake only while pi works**, via the Sprites Tasks API (5 min expiry, refreshed every 60 s, released on exit). When the run ends the Sprite pauses and stops billing compute.
 7. **Notifications land in the window that started the handoff**: a pi warning (`ctx.ui.notify`) plus `cmux notify` targeted at that pane (`CMUX_SURFACE_ID`).
 8. **Pull refuses while a run is in progress.** `--abort` stops the run first; it is never implicit.
-9. **Pull cleans up the Sprite**: session file, `.env*`, `.scratch/`, transfer files and the job's state dir are deleted. The checkout and `node_modules` stay warm.
+9. **Pull cleans up the Sprite**: session file, `.env*`, `.scratch/`, transfer files and the job's state dir are deleted. The job's worktree is removed (its work is on `origin`); the repo's cached clone and the npm `node_modules` cache stay warm.
 10. **Repo**: `msimon/pi-handoff`, private, topics `ops` + `perso`, TypeScript like `pi-reminders`.
 
 ## Workspace protocols
@@ -36,12 +36,15 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 
 Applies when the folder is inside a git work tree with an `origin` remote.
 
-1. **One branch per job.** The job gets its own branch, `<current-branch>-handoff-<n>`, created from `HEAD`. The original branch and working tree stay free for local work.
-2. **Uncommitted work travels as a snapshot commit on the job branch.** Tracked changes and untracked, non-ignored files are committed with a temporary index (`GIT_INDEX_FILE=… git add -A`, `git write-tree`, `git commit-tree`), so the local working tree and index are not touched. Because the branch is new, the snapshot commit does not pollute the original branch.
+1. **One branch per job, on `origin` only.** The job branch `<current-branch>-handoff-<n>` is pushed straight from `HEAD` (or the snapshot commit) with `git push origin <sha>:refs/heads/<jobBranch>`; no local branch is created. `<n>` is the next free number on `origin`. The original branch, working tree and local branch list are untouched.
+2. **Uncommitted work travels as a snapshot commit on the job branch.** Tracked changes and untracked, non-ignored files are committed with a temporary index (`GIT_INDEX_FILE=… git add -A`, `git write-tree`, `git commit-tree`), so the local working tree and index are not touched. The snapshot commit becomes the job branch's tip on `origin`; no local ref is created or moved.
 3. **Ignored-but-wanted files never get committed.** An allowlist (default `.env*`, `.scratch/`, configurable) travels as a tarball over `sprite exec`.
-4. **On the Sprite**, the job branch is checked out in the job's own checkout under `<jobRoot>` (a clone of `origin`, or a worktree of a cached clone so repeated jobs stay fast). The agent commits on it, pushes it and opens a PR when the work is ready (configurable: `pr: auto | never`). It is a normal branch, not a temporary one.
-5. **On pull**, any uncommitted remote changes get a final snapshot commit and are pushed. Locally the job branch is fetched; `--worktree` also creates a local worktree for it. Combining it with local work is ordinary git, if and when Marc chooses.
+4. **On the Sprite**, each repo has one cached clone at `~/repos/<owner>/<repo>`, made once with `git clone --filter=blob:none` (full history, file contents fetched on demand). Each job fetches its branch into it and gets its own worktree: `git worktree add <jobRoot>/<repo> <jobBranch>`. The agent commits on it, pushes it and opens a PR when the work is ready (configurable: `pr: auto | never`). It is a normal branch, not a temporary one.
+5. **On pull**, any uncommitted remote changes get a final snapshot commit and are pushed. Locally the job branch is only fetched (`origin/<jobBranch>`); `--worktree` creates the local branch and a worktree for it (see Local worktrees). Combining it with local work is ordinary git, if and when Marc chooses.
 
+### Local worktrees
+
+`pull --worktree` puts every job worktree under one folder: `~/pi-handoff/worktrees/<repo>/<jobId>`, on a local branch `<jobBranch>` tracking `origin`. A worktree can also be added later by hand with `git worktree add <path> <jobBranch>`.
 ### Non-git folders (open)
 
 Code transfer has no safe merge story here, but the conversation can still continue (research, planning, writing). Proposed default: conversation-only. The job runs in an empty job folder and the briefing tells it the local files are not available. Open: whether to also offer a tarball of small folders up, with remote files brought back into a separate `<path>.handoff-<job>/` folder on pull, never in place.
@@ -92,7 +95,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 1. Wait for idle.
 2. Detect the protocol and prepare the workspace (git protocol steps 1–4, or conversation-only).
 3. Create the job session: a copy of the active branch with a new session id, `parentSession` set to the main session file, and a job name. Record `forkLeafId`. Its header `cwd` stays the original path, which the job sees through its mount namespace. Upload it to the job's state dir; the runner passes it with `--session`.
-4. Install dependencies when the lockfile hash differs from the last install (package manager detected from the lockfile).
+4. Prepare dependencies, without installing them. For npm projects (no shared store), the job's checkout gets a copy of the cached `node_modules` for that repo and lockfile hash, if one exists. The agent runs the install itself (see Briefings); after the run, the runner saves the job's `node_modules` as the cache for a new lockfile hash.
 5. Start `handoff-run <jobId>` detached so the `sprite exec` call returns immediately. Default prompt: "Continue where we left off."
 6. Locally: write the job record, show `☁ <n> job(s)` in the status line, start polling. The main session stays fully usable.
 
@@ -120,8 +123,9 @@ Remote, per job at `~/.handoff/<jobId>/`:
 3. Path rule, fallback only (namespace unavailable): `/Users/marc/<folder>` from the history now lives at `<jobRoot>/<folder>`.
 4. Unavailable tools and skills, with the reason (Keychain, macOS-only, no cmux).
 5. Git rules: work only on `<jobBranch>`, commit as you go, push it, open a PR when ready (or never, per config), do not touch other branches.
-6. Credentials: a GitHub token is available, nothing else.
-7. End of run: finish with a short summary of what was done and what is next. It becomes the notification text.
+6. Dependencies: not installed. Run `<install command>` (from the detected lockfile, e.g. `pnpm install`, `npm install`, `uv sync`) before running tests or builds.
+7. Credentials: a GitHub token is available, nothing else.
+8. End of run: finish with a short summary of what was done and what is next. It becomes the notification text.
 
 **Return briefing**, appended to the job session on pull, before it is opened locally: the job ran on the Sprite at `<path>`; its work is now on branch `<jobBranch>` (and in local worktree `<path>` with `--worktree`); the normal tools are available again. Without it, the resumed conversation would keep using remote paths.
 
@@ -147,7 +151,7 @@ Refuse while the job is `running`. Start a new run of that job with `<text>` as 
 
 Each is a short experiment on a real Sprite. Results go back into this plan.
 
-- **S1 Detached runs and the hold.** A process started via `sprite exec … setsid nohup … &` survives the exec returning; with a Tasks hold the Sprite stays running; without one it pauses after ~30 s (`sprite list` state).
+- **S1 Detached runs and the hold.** A process started via `sprite exec … setsid nohup … &` survives the exec returning; with a Tasks hold the Sprite stays running; without one it pauses after ~30 s (`sprite list` state). Also: a Sprite paused mid-run resumes the frozen pi cleanly (an in-flight LLM request is retried, not hung), and the Tasks API expiry rules (minimum/maximum, whether renewing updates the task or creates a new one).
 - **S2 Cloned session resume.** A copied session with a new id, `parentSession` set and a rewritten `cwd` resumes with full context via `pi -p --mode json --session <file>` on the Sprite, and shows up correctly in local `/resume` after pull.
 - **S3 Headless dialogs.** What happens in print/JSON mode to `ask_user_question` and to extensions calling `ctx.ui.confirm` (`ctx.hasUI` is false there). The override must cover every interactive path in Marc's loadout.
 - **S4 Extensions on Linux.** Which of Marc's pi extensions install and work on the Sprite (pi-lens native binaries, LSPs). Decide which to load remotely.
@@ -177,6 +181,8 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 - `/handoff watch`: overlay (`ctx.ui.custom`, like `/btw`) following `events.jsonl` over `sprite exec`; closing it stops the follow so the Sprite can sleep.
 - Answer from the notification via `cmux notify --reply`.
 - Consider `--mode rpc` on the Sprite so remote dialogs forward to the laptop instead of ending the run.
+- `/handoff cleanup [job]`: remove a job's local worktree and branch once merged or discarded; refuse if it has uncommitted changes.
+- Sprite credentials for Keychain-backed skills: Sprite-only tokens (Gmail app password, Google OAuth, `ntn`) stored on the Sprite, and each skill falls back to an environment variable or file when the Keychain is unavailable. This lifts the "extra secrets" non-goal for those skills.
 
 ## Cost expectations
 
