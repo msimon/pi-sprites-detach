@@ -2,3 +2,5 @@ node_modules/
 dist/
 .sprite
 *.log
+*.tgz
+.DS_Store
