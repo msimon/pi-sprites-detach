@@ -27,7 +27,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 6. **The Sprite is held awake only while pi works**, via the Sprites Tasks API (5 min expiry, refreshed every 60 s, released on exit). When the run ends the Sprite pauses and stops billing compute.
 7. **Notifications land in the window that started the handoff**: a pi warning (`ctx.ui.notify`) plus `cmux notify` targeted at that pane (`CMUX_SURFACE_ID`).
 8. **Pull refuses while a run is in progress.** `--abort` stops the run first; it is never implicit.
-9. **Pull cleans up the Sprite**: session file, `.env*`, `.scratch/`, transfer files and the job's state dir are deleted. The job's worktree is removed (its work is on `origin`); the repo's cached clone and the npm `node_modules` cache stay warm.
+9. **Pull cleans up the Sprite**: session file, the copied project files (`copyProjectFiles`), transfer files and the job's state dir are deleted. The job's worktree is removed (its work is on `origin`); the repo's cached clone and the npm `node_modules` cache stay warm.
 10. **Repo**: `msimon/pi-handoff`, private, topics `ops` + `perso`, TypeScript like `pi-reminders`.
 
 ## Workspace protocols
@@ -38,7 +38,7 @@ Applies when the folder is inside a git work tree with an `origin` remote.
 
 1. **One branch per job, on `origin` only.** The job branch `<current-branch>-handoff-<n>` is pushed straight from `HEAD` (or the snapshot commit) with `git push origin <sha>:refs/heads/<jobBranch>`; no local branch is created. `<n>` is the next free number on `origin`. The original branch, working tree and local branch list are untouched.
 2. **Uncommitted work travels as a snapshot commit on the job branch.** Tracked changes and untracked, non-ignored files are committed with a temporary index (`GIT_INDEX_FILE=… git add -A`, `git write-tree`, `git commit-tree`), so the local working tree and index are not touched. The snapshot commit becomes the job branch's tip on `origin`; no local ref is created or moved.
-3. **Ignored-but-wanted files never get committed.** An allowlist (default `.env*`, `.scratch/`, configurable) travels as a tarball, built with `COPYFILE_DISABLE=1 tar --no-xattrs` and uploaded with `sprite exec --file` (S5).
+3. **Ignored-but-wanted files never get committed.** The files matched by `copyProjectFiles` (see Config; default `.env*`, `.scratch/`) travel as a tarball, built with `COPYFILE_DISABLE=1 tar --no-xattrs` and uploaded with `sprite exec --file` (S5).
 4. **On the Sprite**, each repo has one cached clone at `~/repos/<owner>/<repo>`, made once with `git clone --filter=blob:none` (full history, file contents fetched on demand). Each job fetches its branch into it and gets its own worktree: `git worktree add <jobRoot>/<repo> <jobBranch>`. The agent commits on it, pushes it and opens a PR when the work is ready (configurable: `pr: auto | never`). It is a normal branch, not a temporary one.
 5. **On pull**, any uncommitted remote changes get a final snapshot commit and are pushed. Locally the job branch is only fetched (`origin/<jobBranch>`); `--worktree` creates the local branch and a worktree for it (see Local worktrees). Combining it with local work is ordinary git, if and when Marc chooses.
 
@@ -89,6 +89,42 @@ Remote, per job at `~/.handoff/<jobId>/`:
 - `events.jsonl`: pi's JSON event stream, appended per run (feeds v2 `watch`).
 - `runner.pid`, `runner.log`.
 
+## Config
+
+`~/.pi-handoff/config.json`. The first run writes it with these defaults, so everything that syncs or is skipped is visible and editable; nothing is hidden in code.
+
+```json
+{
+  "sprite": "pi-handoff",
+  "sync": {
+    "paths": [
+      "~/.pi/agent/AGENTS.md",
+      "~/.pi/agent/extensions",
+      "~/.pi/agent/skills",
+      "~/.pi/agent/loadouts.json",
+      "~/.pi/agent/subagents.json",
+      "~/.pi/agent/trust.json",
+      "~/.agents/skills",
+      "~/.pi/web-search.json"
+    ],
+    "exclude": ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"]
+  },
+  "remote": {
+    "exclude": ["pi-cron-jobs", "pi-reminders"],
+    "replace": { "npm:@juicesharp/rpiv-ask-user-question": "builtin:remote-ask" },
+    "tools": { "agent-browser": "0.38.2" }
+  },
+  "copyProjectFiles": [".env*", ".scratch/"]
+}
+```
+
+- `sprite`: the Sprite for new jobs; each job records its own.
+- `sync.paths`: exactly what Config sync sends. `settings.json` is not listed because it always syncs (it carries the package list), rewritten for the Sprite: extension paths `/Users/marc/` → `/home/sprite/`, then the `remote` rules. `trust.json` is listed because project trust is keyed by path and the job sees the same paths, so Marc's saved answers apply as they are (S3).
+- `sync.exclude`: globs skipped inside those paths.
+- `remote.exclude`: entries not loaded on the Sprite. pi's `settings.json` has two lists: `packages` (`npm:…` / `git:…` sources pi installs and updates; a package can bundle extensions, skills, prompts and themes) and `extensions` (paths to local `.ts` files loaded directly). An entry matches either list by substring, so `"pi-reminders"` is enough.
+- `remote.replace`: same matching, swapped for another source (`npm:`, `git:` or `builtin:`). `builtin:remote-ask` is the remote extension's `ask_user_question`. The rpiv entry must stay: two extensions registering the same tool name stop pi from starting (S3).
+- `remote.tools`: tools that are not pi packages, installed by the setup script at a pinned version.
+- `copyProjectFiles`: git-ignored files from the handed-off project that are copied into the job's checkout (git protocol step 3). A project can override the list with `copyProjectFiles` in `<repo>/.pi-handoff.json`.
 ## Flows
 
 ### Push: `/handoff [prompt]`
@@ -105,10 +141,10 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, refreshed only when something changed.
 
-1. **What syncs:** `~/.pi/agent/AGENTS.md`, `extensions/`, `skills/`, `loadouts.json`, `subagents.json`, `trust.json` (project trust is keyed by path, and the job sees the same paths; without it a repo's own `.pi/` config is silently ignored, S3), `~/.agents/skills/`, `~/.pi/web-search.json`, and `settings.json` with extension paths rewritten from `/Users/marc/` to `/home/sprite/` and laptop-only extensions and packages dropped.
-2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches, logs, `.venv`, `node_modules`, `.DS_Store`, lock files.
+1. **What syncs:** the files under `sync.paths` minus `sync.exclude` (see Config), plus `settings.json` rewritten for the Sprite.
+2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches and logs; they are simply not in `sync.paths`.
 3. **When:** on every `/handoff`, hash the synced set and compare it with the hash stored on the Sprite (`~/.handoff/sync/hash`). Unchanged costs one small read. Changed: upload a tarball (`COPYFILE_DISABLE=1 tar --no-xattrs`, `sprite exec --file`), unpack it over the Sprite's home (the Sprite's own skills, `sprite` and `sprite-api-gateway`, stay), write the settings, and run `pi update --extensions` only if the package list changed. `/handoff sync` does the same on demand.
-4. **Per-machine config** in pi-handoff's own config: extensions and packages to leave out on the Sprite (default `pi-cron-jobs`, `pi-reminders`, and `npm:@juicesharp/rpiv-ask-user-question`, whose tool name clashes with the remote extension's, S3), and tools to install that are not pi packages (`agent-browser` at the laptop's version, later LSPs), applied by the setup script.
+4. **Per-machine rules** come from `remote` in the config: `exclude` and `replace` are applied while rewriting `settings.json`; `tools` are installed by the setup script.
 5. **Long installs** (`pi update`, apt) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them.
 6. **Secrets:** `~/.pi/web-search.json` syncs like the rest, but keeps its `0600` permissions and is never logged. The Sprite's own logins (`auth.json`, `gh`) are never overwritten.
 ### Run: `handoff-run <jobId>` (on the Sprite)
