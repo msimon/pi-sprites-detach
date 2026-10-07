@@ -112,7 +112,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
   "remote": {
     "exclude": ["pi-cron-jobs", "pi-reminders"],
     "replace": { "npm:@juicesharp/rpiv-ask-user-question": "builtin:remote-ask" },
-    "tools": { "agent-browser": "0.38.2" }
+    "tools": ["agent-browser"]
   },
   "copyProjectFiles": [".env*", ".scratch/"]
 }
@@ -123,7 +123,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 - `sync.exclude`: globs skipped inside those paths.
 - `remote.exclude`: entries not loaded on the Sprite. pi's `settings.json` has two lists: `packages` (`npm:…` / `git:…` sources pi installs and updates; a package can bundle extensions, skills, prompts and themes) and `extensions` (paths to local `.ts` files loaded directly). An entry matches either list by substring, so `"pi-reminders"` is enough.
 - `remote.replace`: same matching, swapped for another source (`npm:`, `git:` or `builtin:`). `builtin:remote-ask` is the remote extension's `ask_user_question`. The rpiv entry must stay: two extensions registering the same tool name stop pi from starting (S3).
-- `remote.tools`: tools that are not pi packages, installed by the setup script at a pinned version.
+- `remote.tools`: programs an extension needs that pi does not install, e.g. `agent-browser`, the CLI that `pi-agent-browser-native` wraps (S4). Names only: Config sync reads the laptop's installed version (`<tool> --version`, falling back to `brew list --versions <tool>`) and reinstalls on the Sprite only when the versions differ, so both machines stay on the same version without a pinned number going stale. How each tool is installed on Linux (for `agent-browser`: `npm install -g --prefix ~/.local agent-browser@<version>`, then `agent-browser install --with-deps`) lives in the setup script.
 - `copyProjectFiles`: git-ignored files from the handed-off project that are copied into the job's checkout (git protocol step 3). A project can override the list with `copyProjectFiles` in `<repo>/.pi-handoff.json`.
 ## Flows
 
@@ -144,7 +144,7 @@ The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, r
 1. **What syncs:** the files under `sync.paths` minus `sync.exclude` (see Config), plus `settings.json` rewritten for the Sprite.
 2. **What never syncs:** `auth.json` (the Sprite has its own logins), sessions, caches and logs; they are simply not in `sync.paths`.
 3. **When:** on every `/handoff`, hash the synced set and compare it with the hash stored on the Sprite (`~/.handoff/sync/hash`). Unchanged costs one small read. Changed: upload a tarball (`COPYFILE_DISABLE=1 tar --no-xattrs`, `sprite exec --file`), unpack it over the Sprite's home (the Sprite's own skills, `sprite` and `sprite-api-gateway`, stay), write the settings, and run `pi update --extensions` only if the package list changed. `/handoff sync` does the same on demand.
-4. **Per-machine rules** come from `remote` in the config: `exclude` and `replace` are applied while rewriting `settings.json`; `tools` are installed by the setup script.
+4. **Per-machine rules** come from `remote` in the config: `exclude` and `replace` are applied while rewriting `settings.json`; `tools` are compared by version with the laptop and installed by the setup script when they differ.
 5. **Long installs** (`pi update`, apt) run detached under their own Tasks hold, never inside one `sprite exec`: a dropped exec session would kill them.
 6. **Secrets:** `~/.pi/web-search.json` syncs like the rest, but keeps its `0600` permissions and is never logged. The Sprite's own logins (`auth.json`, `gh`) are never overwritten.
 ### Run: `handoff-run <jobId>` (on the Sprite)
