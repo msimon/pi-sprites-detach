@@ -165,7 +165,7 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 
 ## Milestones
 
-- **M0 Account and Sprite** (Marc + agent): ✅ Fly account with Sprites, `sprite login`, `sprite create pi-handoff --skip-console` (done 2026-10-07). Remaining: bootstrap (pi upgraded to the laptop's version, missing tools, pi config, model auth, GitHub token, git identity), `sprite checkpoint create --comment base`.
+- **M0 Account and Sprite** (Marc + agent): ✅ Done 2026-10-07. Fly account with Sprites, `sprite login`, `sprite create pi-handoff --skip-console`. Bootstrap: Node 24.21.0 as the nvm default (matches the laptop); pi 1.0.4 via `curl -fsSL https://pi.dev/install.sh | sh` (managed install, `pi update` later; never `npm install -g`); pnpm and ast-grep via `npm install -g --prefix ~/.local` (nvm's global bin is not on the PATH); ripgrep and fd from apt (`fd` linked to `fdfind`); `LANG`/`LC_ALL=C.UTF-8` in `~/.profile`; git identity Marc Simon; model auth via `/login` in `sprite exec --tty -- pi` (Anthropic and Codex, Sprite-only tokens); `gh auth login` + `gh auth setup-git`. Checkpoint `v4` (`base`). Not done: Marc's pi config and extensions (S4).
 - **M1 Spikes** S1–S10.
 - **M2 Push + run + notify** (git protocol): `/handoff`, `handoff-run`, remote extension with the remote briefing, tool filtering and path handling, polling, warning. Usable on its own: hand off, get told, then inspect manually.
 - **M3 Reply**: `/handoff reply`.
