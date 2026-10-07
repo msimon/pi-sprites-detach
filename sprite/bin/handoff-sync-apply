@@ -1,0 +1,100 @@
+#!/bin/bash
+# handoff-sync-apply: apply what the laptop uploaded to ~/.handoff/sync/incoming/.
+#
+# Started detached by the laptop after it uploads a changed pi config and/or a list
+# of wanted tool versions. Progress goes to ~/.handoff/sync/state.json, which the
+# laptop polls; what was applied goes to ~/.handoff/sync/applied.json, which the
+# laptop compares against on the next /handoff.
+#
+# incoming/ may contain:
+#   config.tgz, files.txt, config.hash   the synced files (paths relative to $HOME)
+#   settings.json                        ~/.pi/agent/settings.json, already rewritten
+#   tools.json                           { "<tool>": "<version>" } to match the laptop
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+sync_dir=$HANDOFF_STATE/sync
+incoming=$sync_dir/incoming
+state=$sync_dir/state.json
+applied=$sync_dir/applied.json
+mkdir -p "$sync_dir"
+
+exec >>"$sync_dir/sync.log" 2>&1
+echo "== $(now) handoff-sync-apply (pid $$)"
+
+if [ -s "$sync_dir/apply.pid" ] && kill -0 "$(cat "$sync_dir/apply.pid")" 2>/dev/null; then
+  echo "already applying as pid $(cat "$sync_dir/apply.pid")"
+  exit 3
+fi
+echo $$ >"$sync_dir/apply.pid"
+
+step() {
+  echo "== $(now) $1"
+  json_merge "$state" "$(jq -n --arg s "$1" '{state:"applying", step:$s}')"
+}
+
+fail() {
+  echo "error: $1"
+  json_merge "$state" "$(jq -n --arg e "$1" --arg t "$(now)" '{state:"error", error:$e, endedAt:$t}')"
+  exit 1
+}
+
+on_exit() {
+  local rc=$?
+  if [ "$(jq -r '.state // empty' "$state" 2>/dev/null)" = applying ]; then
+    json_merge "$state" "$(jq -n --arg e "sync exited unexpectedly ($rc)" '{state:"error", error:$e}')"
+  fi
+  rm -f "$sync_dir/apply.pid"
+  hold_stop
+}
+
+hold_start handoff-sync
+trap on_exit EXIT
+trap 'exit 143' TERM INT HUP
+
+jq -n --arg t "$(now)" '{state:"applying", step:"starting", startedAt:$t}' >"$state"
+[ -s "$applied" ] || echo '{}' >"$applied"
+
+if [ -f "$incoming/config.tgz" ]; then
+  step "pi config"
+  tar -xzf "$incoming/config.tgz" -C "$HOME" || fail "unpacking the pi config failed"
+  # Remove files an earlier sync wrote that the laptop no longer has. Only files a
+  # sync wrote are ever deleted, so the Sprite's own files (its skills, auth) stay.
+  if [ -f "$sync_dir/files.txt" ]; then
+    comm -23 <(sort "$sync_dir/files.txt") <(sort "$incoming/files.txt") |
+      while IFS= read -r f; do rm -f -- "${HOME:?}/$f" && echo "removed $f"; done
+  fi
+  cp "$incoming/files.txt" "$sync_dir/files.txt"
+  # Secrets keep owner-only permissions whatever the laptop's mode was.
+  [ -f "$HOME/.pi/web-search.json" ] && chmod 600 "$HOME/.pi/web-search.json"
+  cp "$incoming/settings.json" "$HOME/.pi/agent/settings.json"
+
+  packages_hash=$(jq -c '.packages // []' "$HOME/.pi/agent/settings.json" | sha256sum | cut -c1-16)
+  if [ "$packages_hash" != "$(jq -r '.packagesHash // empty' "$applied")" ]; then
+    step "pi packages"
+    pi update --extensions || fail "pi update --extensions failed, see ~/.handoff/sync/sync.log"
+  fi
+  json_merge "$applied" "$(jq -n --arg c "$(cat "$incoming/config.hash")" --arg p "$packages_hash" \
+    '{configHash:$c, packagesHash:$p}')"
+fi
+
+if [ -f "$incoming/tools.json" ]; then
+  for name in $(jq -r 'keys[]' "$incoming/tools.json"); do
+    want=$(jq -r --arg n "$name" '.[$n]' "$incoming/tools.json")
+    recipe=$HANDOFF_HOME/setup/tools/$name.sh
+    if [ ! -f "$recipe" ]; then
+      echo "no recipe for $name, skipped"
+      continue
+    fi
+    # shellcheck disable=SC1090
+    have=$(source "$recipe" && tool_version 2>/dev/null)
+    [ "$have" = "$want" ] && continue
+    step "installing $name"
+    "$HANDOFF_HOME/setup/install-tool.sh" "$name" "$want" || fail "installing $name $want failed, see ~/.handoff/sync/sync.log"
+  done
+fi
+
+rm -rf "$incoming"
+json_merge "$state" "$(jq -n --arg t "$(now)" '{state:"done", step:null, endedAt:$t}')"
+echo "== $(now) done"
