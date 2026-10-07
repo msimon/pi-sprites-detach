@@ -22,7 +22,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 1. **Target**: one shared Sprite (default name `pi-handoff`), several concurrent jobs on it.
 2. **The conversation splits like `/clone`.** A job runs on a copy of the session's active branch with its own session id and a name. The main session continues locally, untouched. On pull, the job's conversation becomes its own local session file with `parentSession` pointing at the main session; it is opened from `/resume`, or immediately with `/handoff pull --switch`.
 3. **The workspace protocol depends on the folder.** A git work tree uses the git protocol below. A non-git folder is still an open question (see Workspace protocols).
-4. **Each job has its own checkout** on the Sprite, under `<jobRoot>` (`~/jobs/<jobId>/`), so several jobs can come from the same folder. Paths from the conversation history are handled by a per-job mount namespace that shows the job's checkout at the original `/Users/marc/...` path, if spike S9 confirms the Sprite allows it. Otherwise the remote briefing states the path rule and a `tool_call` hook rewrites old paths (see Briefings).
+4. **Each job has its own checkout** on the Sprite, under `<jobRoot>` (`~/jobs/<jobId>/`), so several jobs can come from the same folder. Each job's pi runs in its own mount namespace that shows the job's checkout at the original `/Users/marc/...` path (confirmed by S9), so paths in the conversation history stay valid and no path rewriting is needed. The path rule and `tool_call` rewrite below are kept only as a fallback if the namespace ever stops working.
 5. **The remote pi runs headless**, one run at a time per job: `pi -p --mode json --session <file> "<prompt>"`. Runs are sequential within a job and parallel across jobs.
 6. **The Sprite is held awake only while pi works**, via the Sprites Tasks API (5 min expiry, refreshed every 60 s, released on exit). When the run ends the Sprite pauses and stops billing compute.
 7. **Notifications land in the window that started the handoff**: a pi warning (`ctx.ui.notify`) plus `cmux notify` targeted at that pane (`CMUX_SURFACE_ID`).
@@ -91,7 +91,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 1. Wait for idle.
 2. Detect the protocol and prepare the workspace (git protocol steps 1–4, or conversation-only).
-3. Create the job session: a copy of the active branch with a new session id, `parentSession` set to the main session file, and a job name. Record `forkLeafId`. Set its header `cwd` to the path pi will see on the Sprite (the original path with S9, otherwise the job's checkout). Upload it to the job's state dir; the runner passes it with `--session`.
+3. Create the job session: a copy of the active branch with a new session id, `parentSession` set to the main session file, and a job name. Record `forkLeafId`. Its header `cwd` stays the original path, which the job sees through its mount namespace. Upload it to the job's state dir; the runner passes it with `--session`.
 4. Install dependencies when the lockfile hash differs from the last install (package manager detected from the lockfile).
 5. Start `handoff-run <jobId>` detached so the `sprite exec` call returns immediately. Default prompt: "Continue where we left off."
 6. Locally: write the job record, show `☁ <n> job(s)` in the status line, start polling. The main session stays fully usable.
@@ -107,7 +107,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 - Adds the remote briefing to the system prompt on every run (see Briefings).
 - Removes unavailable tools from the active set (`setActiveTools`) and filters unavailable skills out of the skills section, so the rules are enforced rather than only stated.
-- Without S9: a `tool_call` hook rewrites the original folder path to the job's checkout in tool arguments, as a safety net for paths copied from the history.
+- Fallback only (namespace unavailable): a `tool_call` hook rewrites the original folder path to the job's checkout in tool arguments, as a safety net for paths copied from the history.
 - Overrides `ask_user_question`: writes the questions to `status.json`, returns `terminate: true` so the run ends cleanly, and the runner reports `needs_input`.
 - On `agent_settled`: records the final assistant text (the end-of-run summary) in `status.json`.
 
@@ -117,7 +117,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 
 1. Situation: running unattended on a cloud machine as job `<jobId>`, split from session `<id>`; the user is away.
 2. No TUI: no dialogs and no live user. `ask_user_question` ends the run and the question is delivered. Prefer reasonable decisions and list the assumptions made; stop only when truly blocked.
-3. Path rule (without S9): `/Users/marc/<folder>` from the history now lives at `<jobRoot>/<folder>`.
+3. Path rule, fallback only (namespace unavailable): `/Users/marc/<folder>` from the history now lives at `<jobRoot>/<folder>`.
 4. Unavailable tools and skills, with the reason (Keychain, macOS-only, no cmux).
 5. Git rules: work only on `<jobBranch>`, commit as you go, push it, open a PR when ready (or never, per config), do not touch other branches.
 6. Credentials: a GitHub token is available, nothing else.
@@ -153,14 +153,14 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 - **S4 Extensions on Linux.** Which of Marc's pi extensions install and work on the Sprite (pi-lens native binaries, LSPs). Decide which to load remotely.
 - **S5 File transfer.** `sprite exec --file` upload and binary-safe download (stdout or base64) for the tarball and session file.
 - **S6 cmux notify from an extension** targeting the originating surface via `CMUX_SURFACE_ID`.
-- **S7 Base image.** What the Sprite ships with (Node, git, ripgrep, agents) to size the bootstrap.
+- **S7 Base image.** ✅ Done 2026-10-07. Ubuntu 26.04 x86_64, 8 vCPU, 8 GiB RAM visible, 99 GB disk. Runs as user `sprite` (uid 1001, home `/home/sprite`) with passwordless `sudo`. Preinstalled: Node 24, npm, bun, Python 3.13, uv, Go 1.25, git, `gh`, jq, curl, tmux, `unshare`, Claude Code, Codex and **pi 0.84.4** (with a `~/.pi`). Missing: pnpm, ripgrep, fd, ast-grep, nu, docker. Tasks API socket at `/.sprite/api.sock` answers `{"tasks":[]}`; `sprite-env` at `/.sprite/bin/sprite-env`. Bootstrap must upgrade pi to the laptop's version (1.0.4) so session files are compatible, and install the missing tools.
 - **S8 Snapshot commit.** The temporary-index snapshot captures tracked and untracked changes without touching the local working tree or index.
-- **S9 Mount namespace.** `unshare --mount` plus a bind mount works on the Sprite, so each job's pi sees its own checkout at the original `/Users/marc/...` path while other jobs see theirs.
+- **S9 Mount namespace.** ✅ Works, 2026-10-07. `sudo unshare --mount --propagation private` + `mount --bind ~/jobs/<job>/proj /Users/marc/proj`, then `setpriv --reuid=sprite --regid=sprite --init-groups` to drop back to the `sprite` user. Two concurrent jobs each saw their own checkout at the same `/Users/marc/proj` path, wrote into their own job dir, and the path stayed empty outside the namespaces. Decision 4 uses the namespace; the path rule and rewrite hook are not needed. Unprivileged `unshare -rm` also works, but would make pi run as a mapped root, so the sudo + setpriv form is preferred. Still to confirm in S1: a detached runner inside the namespace survives `sprite exec` returning.
 - **S10 Briefing behavior.** The remote briefing actually changes the model's behavior: correct paths, no attempts at user questions, unavailable tools avoided, an end-of-run summary.
 
 ## Milestones
 
-- **M0 Account and Sprite** (Marc + agent): Fly account with Sprites, `sprite login`, `sprite create pi-handoff --skip-console`, bootstrap (Node, pi, toolchain, pi config, model auth, GitHub token, git identity), `sprite checkpoint create --comment base`.
+- **M0 Account and Sprite** (Marc + agent): ✅ Fly account with Sprites, `sprite login`, `sprite create pi-handoff --skip-console` (done 2026-10-07). Remaining: bootstrap (pi upgraded to the laptop's version, missing tools, pi config, model auth, GitHub token, git identity), `sprite checkpoint create --comment base`.
 - **M1 Spikes** S1–S10.
 - **M2 Push + run + notify** (git protocol): `/handoff`, `handoff-run`, remote extension with the remote briefing, tool filtering and path handling, polling, warning. Usable on its own: hand off, get told, then inspect manually.
 - **M3 Reply**: `/handoff reply`.
@@ -186,4 +186,4 @@ Sprite compute is billed only while running: about $0.038/CPU-hour and $0.021875
 
 - **Forgotten holds**: the heartbeat expires within 5 min if the runner dies; never use a hold without an expiry.
 - **Data at rest on Fly**: the session file contains tool outputs. Mitigated by pull-time cleanup; be careful with client or patient data.
-- **Stale paths in the job's history**: without S9 the model can still reach for original paths. Mitigated by the briefing rule, the `tool_call` rewrite (bash commands are harder to rewrite safely than path arguments) and the return briefing.
+- **Stale paths in the job's history**: avoided by the per-job mount namespace (S9). If it ever stops working, the fallback is the briefing rule plus the `tool_call` rewrite (bash commands are harder to rewrite safely than path arguments).
