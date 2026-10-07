@@ -39,7 +39,8 @@ export async function detectGit(folder: string): Promise<GitInfo | undefined> {
   if (top.code !== 0) return undefined;
   const repoRoot = top.stdout.trim();
 
-  const origin = await run("git", ["remote", "get-url", "origin"], { cwd: repoRoot });
+  // The configured URL, not `remote get-url`, which applies the laptop's insteadOf rules.
+  const origin = await run("git", ["config", "--get", "remote.origin.url"], { cwd: repoRoot });
   if (origin.code !== 0) {
     throw new Error(`${repoRoot} has no origin remote. pi-handoff needs one to move the work (see the plan's open questions).`);
   }
@@ -126,6 +127,12 @@ export function projectPathspecs(patterns: readonly string[]): string[] {
   });
 }
 
+/**
+ * Dependency folders never hold project files worth copying (a package's own .env,
+ * say), and the agent reinstalls them anyway.
+ */
+const NEVER_COPY = [":(glob,exclude)**/node_modules/**", ":(glob,exclude)**/.venv/**"];
+
 /** Git-ignored files matching the patterns, relative to the repo root. */
 export async function ignoredProjectFiles(info: GitInfo, patterns: readonly string[]): Promise<string[]> {
   if (patterns.length === 0) return [];
@@ -137,6 +144,7 @@ export async function ignoredProjectFiles(info: GitInfo, patterns: readonly stri
     "-z",
     "--",
     ...projectPathspecs(patterns),
+    ...NEVER_COPY,
   ]);
   return out.split("\0").filter((f) => f !== "");
 }
