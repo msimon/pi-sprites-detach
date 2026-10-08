@@ -43,7 +43,7 @@ const SUBCOMMANDS = [
   { name: "sync", usage: "sync", description: "bring the Sprite's pi setup in line with the laptop" },
   { name: "status", usage: "status [filter]", description: "browse jobs by state, pull or abort them" },
   // pi's menu cuts the label at ~30 characters, so the options go in the description.
-  { name: "pull", usage: "pull [job] [options]", description: "bring a job back (--abort, --switch, --worktree)" },
+  { name: "pull", usage: "pull [job] [options]", description: "bring a job back. Options: --abort, --switch, --worktree" },
 ] as const;
 const PULL_FLAGS = {
   "--abort": "stop a run in progress first",
