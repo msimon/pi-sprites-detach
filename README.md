@@ -89,6 +89,20 @@ Pull options:
 - `--switch`: open the job's conversation right away. Otherwise it is listed in `/resume` and in the job browser.
 - `--worktree`: also check the job branch out in a local worktree, `~/pi-handoff/worktrees/<repo>/<job>`. The conversation then works there. Open it from `/resume` in the original folder: the worktree has its own session list, where it does not appear.
 
+## The model can drive it too
+
+The package also installs a skill and six tools, so you can say "I have to leave, hand this off" or "what did h3 find?" and the model does it:
+
+| Tool | What it does | Asks you first |
+| --- | --- | --- |
+| `handoff_status` | Lists jobs, or shows one in full | no |
+| `handoff_reply` | Answers a finished job or asks it for more work | no |
+| `handoff_pull` | Brings a job back and returns a summary of what it did (like `pull --here`) | yes |
+| `handoff_join` | Opens a live session on a finished job | only to stop a run |
+| `handoff_abort` | Stops a run in progress | yes |
+| `handoff_start` | Hands the current work off | yes |
+
+"Asks you first" is a yes/no dialog in pi; without a UI the tool refuses. `handoff_start` forks the conversation at the model's last finished message, as `/split` does, so the job does not see the turn that called it: the model puts what the job needs in the prompt, and tells you it handed off and stops. The tools are not loaded on the Sprite.
 ## What you see
 
 - **Status line**: `☁ 1 running · 1 needs input · 2 done`, counting every job not yet pulled.
