@@ -76,13 +76,14 @@ Then run `/handoff sync` in pi. It copies your pi setup to the Sprite (see Confi
 | `/handoff [prompt]` | Hand this conversation off. Without a prompt, the agent is told to continue where you left off. |
 | `/handoff status [filter]` | Open the job browser. Filters: `all`, `running`, `needs-input`, `done`, `failed`, `aborted`, `pulled`. |
 | `/handoff reply [job] [text]` | Start another run of a finished job: answer its question or ask for more work. Without text, pi asks (a question with options shows them as a menu). |
-| `/handoff pull [job] [--abort] [--switch] [--worktree]` | Bring a job back: its conversation becomes a local session, its branch is fetched, and the Sprite is cleaned up. |
+| `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]` | Bring a job back: its conversation becomes a local session, its branch is fetched, and the Sprite is cleaned up. |
 | `/handoff sync` | Bring the Sprite in line with your pi setup now (handoff and reply do this first anyway). |
 
 The job id can be left out when only one job fits; otherwise pi asks. A handoff prompt cannot start with `sync`, `status`, `reply` or `pull`, since those words are read as the subcommand.
 
 Pull options:
 
+- `--here`: also bring the job's context into this conversation, so you can continue here as if it had done the work: a summary of what it did, learned and decided (made with your current model, like `/tree` summarizes a branch you leave), its final message, its commits and changed files, and where its full conversation is saved. The code stays on the job branch until you ask for it. Works on a job you already pulled, too.
 - `--abort`: a run in progress is stopped first. Without it, pull refuses while the job is running.
 - `--switch`: open the job's conversation right away. Otherwise it is listed in `/resume` and in the job browser.
 - `--worktree`: also check the job branch out in a local worktree, `~/pi-handoff/worktrees/<repo>/<job>`. The conversation then works there. Open it from `/resume` in the original folder: the worktree has its own session list, where it does not appear.
@@ -92,7 +93,7 @@ Pull options:
 - **Status line**: `☁ 1 running · 1 needs input · 2 done`, counting every job not yet pulled.
 - **Outcome card**: when a run ends, a card in the open conversation with the agent's last message or its question, plus how to continue (`/handoff reply …`) or bring it back (`/handoff pull … --switch`). Cards are never sent to the model.
 - **cmux notification** to the pane that handed off (or replied), when run inside cmux.
-- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/N/D/F/X/P to jump to one, Enter for the job's actions (reply, show the full message, pull and open, pull and stay, abort a run, open a pulled conversation), Esc to close.
+- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/N/D/F/X/P to jump to one, Enter for the job's actions (reply, show the full message, pull with its context into this conversation, pull and open, pull and stay, abort a run, open a pulled conversation or bring its context here), Esc to close.
 
 ## Config
 
