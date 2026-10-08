@@ -12,10 +12,14 @@ import {
   ACTIVE_STATES,
   claimNotification,
   conversationName,
+  FILTER_LABELS,
+  type JobFilter,
   type JobState,
   type LocalJob,
   listJobs,
+  matchesFilter,
   type Question,
+  STATUS_LINE_FILTERS,
   writeJob,
 } from "./jobs.ts";
 import { cmuxNotify } from "./notify.ts";
@@ -144,16 +148,9 @@ export class HandoffRuntime {
   async #notify(job: LocalJob): Promise<void> {
     if (!(await claimNotification(job))) return;
     const { label, body } = describeOutcome(job);
-    const ctx = this.#ctx;
-    if (ctx !== undefined) {
-      // The card belongs in the handed-off conversation. If this window shows another
-      // session, a card would be saved into that unrelated conversation: notice instead.
-      if (ctx.sessionManager.getSessionFile() === job.mainSessionFile) {
-        this.#pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job));
-      } else {
-        ctx.ui.notify(`☁ Job ${job.jobId} ${label}: ${conversationName(job)}\n${body}`, "info");
-      }
-    }
+    // Into whichever conversation this window has open, even if it is not the
+    // handed-off one: the card names its job, and the job browser lists them all.
+    if (this.#ctx !== undefined) this.#pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job));
     if (job.surface !== undefined) {
       await cmuxNotify(job.surface, `pi-handoff: job ${job.jobId} ${label}`, `${conversationName(job)}: ${body}`);
     }
@@ -163,9 +160,10 @@ export class HandoffRuntime {
     const ctx = this.#ctx;
     if (ctx === undefined) return;
     const jobs = await listJobs();
-    const running = jobs.filter(isActive).length;
-    const waiting = jobs.filter((j) => j.state === "needs_input").length;
-    const parts = [running > 0 ? `${running} running` : "", waiting > 0 ? `${waiting} needs input` : ""].filter(Boolean);
+    const count = (filter: JobFilter): number => jobs.filter((job) => matchesFilter(job, filter)).length;
+    const parts = STATUS_LINE_FILTERS.map((filter) => [count(filter), FILTER_LABELS[filter]] as const)
+      .filter(([n]) => n > 0)
+      .map(([n, label]) => `${n} ${label}`);
     ctx.ui.setStatus(STATUS_KEY, parts.length === 0 ? undefined : `☁ ${parts.join(" · ")}`);
   }
 }

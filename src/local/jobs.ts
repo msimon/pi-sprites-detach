@@ -9,6 +9,43 @@ export type JobState = "starting" | "preparing" | "running" | "done" | "needs_in
 
 export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running"];
 
+/** Job browser filters, one per state (running groups its first seconds). */
+export const JOB_FILTERS = ["all", "running", "needs_input", "done", "failed", "aborted", "pulled"] as const;
+export type JobFilter = (typeof JOB_FILTERS)[number];
+
+export const FILTER_LABELS: Record<JobFilter, string> = {
+  all: "all",
+  running: "running",
+  needs_input: "needs input",
+  done: "done",
+  failed: "failed",
+  aborted: "aborted",
+  pulled: "pulled",
+};
+
+/** What the status line counts: jobs still running or waiting to be pulled. */
+export const STATUS_LINE_FILTERS: readonly JobFilter[] = ["running", "needs_input", "done", "failed"];
+
+export function matchesFilter(job: { state: JobState }, filter: JobFilter): boolean {
+  switch (filter) {
+    case "all":
+      return job.state !== "pulled";
+    case "running":
+      return ACTIVE_STATES.includes(job.state);
+    case "failed":
+      return job.state === "error";
+    default:
+      return job.state === filter;
+  }
+}
+
+/** Parse a typed filter (`needs-input`, `needs_input`, `error`…), undefined if unknown. */
+export function parseFilter(text: string): JobFilter | undefined {
+  const key = text.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (key === "error") return "failed";
+  return JOB_FILTERS.find((f) => f === key);
+}
+
 export interface Question {
   question: string;
   header?: string;
