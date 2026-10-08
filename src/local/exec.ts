@@ -102,6 +102,11 @@ export async function spriteJson<T>(
   }
 }
 
+/** Download one file from the Sprite (`sprite file pull`, byte-exact; S5). */
+export async function spritePull(sprite: string, remotePath: string, localPath: string, timeoutMs = 300_000): Promise<void> {
+  await runOk(spriteBin(), ["file", "pull", "-s", sprite, remotePath, localPath], { timeoutMs });
+}
+
 /** bash snippet that prints a JSON value with the marker. */
 export function emitJson(jqExpression: string, jqArgs = ""): string {
   return `printf '%s%s\\n' '${JSON_MARKER}' "$(jq -nc ${jqArgs} '${jqExpression}')"`;

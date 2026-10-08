@@ -1,0 +1,36 @@
+#!/bin/bash
+# handoff-clean <jobId>: remove a pulled job from the Sprite (decision 9).
+#
+# Deletes the job's state dir (session file, prompt, copied project files, logs), its
+# worktree and job root, and the job branch's local ref in the cached clone. The cached
+# clone and the node_modules cache stay. Run by the laptop only once the session file
+# is safely downloaded; refuses while a run is in progress.
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-clean <jobId>}
+case $job in h[0-9]*) ;; *) echo "bad job id: $job" >&2; exit 2 ;; esac
+dir=$HANDOFF_STATE/$job
+job_root=$HOME/jobs/$job
+
+if runner_alive "$job"; then
+  echo "$job is still running" >&2
+  exit 1
+fi
+
+if [ -f "$dir/job.json" ]; then
+  checkout=$(jq -r '.checkout // empty' "$dir/job.json")
+  repo_key=$(jq -r '.repoKey // empty' "$dir/job.json")
+  branch=$(jq -r '.jobBranch // empty' "$dir/job.json")
+  cache=$HOME/repos/$repo_key
+  if [ -n "$repo_key" ] && [ -d "$cache/.git" ]; then
+    [ -n "$checkout" ] && git -C "$cache" worktree remove --force "$checkout" 2>/dev/null
+    git -C "$cache" worktree prune
+    [ -n "$branch" ] && git -C "$cache" branch -D "$branch" >/dev/null 2>&1
+  fi
+fi
+
+rm -rf "$job_root" "$dir"
+"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/handoff-$job" >/dev/null 2>&1 || true
+emit '{"cleaned":true}'

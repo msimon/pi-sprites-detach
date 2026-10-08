@@ -1,6 +1,10 @@
-// A job's outcome, shown in the chat of the session it was handed off from. It is a
-// custom session entry: saved with the conversation and drawn by pi, but never sent
-// to the model. The agent's final message is drawn as Markdown, collapsed when long.
+// What pi-handoff draws in the chat.
+//
+// - The outcome card: a job's result in the chat of the session it was handed off
+//   from. A custom session entry: saved with the conversation and drawn by pi, but
+//   never sent to the model. The agent's final message is Markdown, collapsed when long.
+// - The return line: the return briefing appended to a pulled job's conversation. A
+//   custom message, so the model reads it; drawn as one line, full text when expanded.
 
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getMarkdownTheme, keyText } from "@earendil-works/pi-coding-agent";
@@ -8,6 +12,13 @@ import { Box, type Component, Markdown, Spacer, Text } from "@earendil-works/pi-
 import { conversationName, type JobState, type LocalJob } from "./jobs.ts";
 
 export const OUTCOME_ENTRY = "pi-handoff-outcome";
+export const RETURN_MESSAGE = "pi-handoff-return";
+
+export interface ReturnDetails {
+  jobId: string;
+  jobBranch?: string;
+  worktree?: string;
+}
 
 /** Lines of the message shown before it is cut, unless tool output is expanded. */
 const COLLAPSED_LINES = 12;
@@ -62,6 +73,9 @@ export function outcomeBody(job: LocalJob): string {
 export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}): OutcomeCard {
   const footer: string[] = [];
   if (job.jobBranch !== undefined) footer.push(`Branch ${job.jobBranch} on origin.`);
+  if (job.state === "done" || job.state === "needs_input" || job.state === "error" || job.state === "aborted") {
+    footer.push(`Bring it back: /handoff pull ${job.jobId} --switch  (or /handoff status)`);
+  }
   return {
     jobId: job.jobId,
     state: job.state,
@@ -122,4 +136,12 @@ export function registerOutcomeRenderer(pi: ExtensionAPI): void {
   pi.registerEntryRenderer<OutcomeCard>(OUTCOME_ENTRY, (entry, { expanded }, theme) =>
     entry.data === undefined ? undefined : renderCard(entry.data, expanded, theme),
   );
+  pi.registerMessageRenderer<ReturnDetails>(RETURN_MESSAGE, (message, { expanded }, theme) => {
+    const d = message.details;
+    const where = d?.worktree ?? (d?.jobBranch === undefined ? "conversation only" : `origin/${d.jobBranch}`);
+    const line = `${theme.fg("accent", "☁ Back from the Sprite")}${theme.fg("muted", ` · job ${d?.jobId ?? "?"} · ${where}`)}`;
+    if (!expanded) return new Text(line, 1, 0);
+    const text = typeof message.content === "string" ? message.content : "";
+    return new Text(`${line}\n${theme.fg("dim", text)}`, 1, 0);
+  });
 }

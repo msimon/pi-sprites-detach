@@ -30,12 +30,28 @@ const POLL_MS = 45_000;
 const STATUS_KEY = "handoff";
 const BODY_MAX = 300;
 
-interface RemoteStatus {
+/** The fields of the Sprite's status.json the laptop uses. */
+export interface RemoteStatus {
   state?: JobState;
   runEndedAt?: string | null;
   lastAssistantText?: string | null;
   question?: { questions?: Question[] } | null;
   error?: string | null;
+}
+
+/** The job record updated from status.json, or undefined when nothing changed. */
+export function mergeStatus(job: LocalJob, status: RemoteStatus): LocalJob | undefined {
+  if (status.state === undefined) return undefined;
+  const changed = status.state !== job.state || (status.runEndedAt ?? undefined) !== job.runEndedAt;
+  if (!changed) return undefined;
+  const updated: LocalJob = { ...job, state: status.state, updatedAt: new Date().toISOString() };
+  if (status.runEndedAt) updated.runEndedAt = status.runEndedAt;
+  if (status.lastAssistantText) updated.lastAssistantText = status.lastAssistantText;
+  if (status.question?.questions) updated.questions = status.question.questions;
+  else delete updated.questions;
+  if (status.error) updated.error = status.error;
+  else delete updated.error;
+  return updated;
 }
 
 /** status.json of each job id given as an argument, `null` when absent. */
@@ -119,7 +135,7 @@ export class HandoffRuntime {
         }
         for (const job of spriteJobs) {
           const status = statuses[job.jobId];
-          if (status !== null && status !== undefined) await this.#apply(job, status);
+          if (status !== null && status !== undefined) await this.apply(job, status);
         }
       }
       await this.refreshStatusLine();
@@ -128,20 +144,11 @@ export class HandoffRuntime {
     }
   }
 
-  async #apply(job: LocalJob, status: RemoteStatus): Promise<void> {
-    if (status.state === undefined) return;
-    const changed = status.state !== job.state || (status.runEndedAt ?? undefined) !== job.runEndedAt;
-    if (!changed) return;
-
-    const updated: LocalJob = { ...job, state: status.state, updatedAt: new Date().toISOString() };
-    if (status.runEndedAt) updated.runEndedAt = status.runEndedAt;
-    if (status.lastAssistantText) updated.lastAssistantText = status.lastAssistantText;
-    if (status.question?.questions) updated.questions = status.question.questions;
-    else delete updated.questions;
-    if (status.error) updated.error = status.error;
-    else delete updated.error;
+  /** Record a status read from the Sprite; a run that ended gets its card and notification. */
+  async apply(job: LocalJob, status: RemoteStatus): Promise<void> {
+    const updated = mergeStatus(job, status);
+    if (updated === undefined) return;
     await writeJob(updated);
-
     if (!isActive(updated)) await this.#notify(updated);
   }
 

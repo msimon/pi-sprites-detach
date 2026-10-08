@@ -2,7 +2,7 @@
 // Sprite's ~/.pi-handoff/sprite/. pi has no install hook, so this runs on session_start and
 // before every sync; it only rewrites the folder when the package's files changed.
 //
-//   bin/        handoff-run, handoff-sync-apply, lib.sh      (from sprite/bin)
+//   bin/        handoff-run, -sync-apply, -stop, -pull, -clean, lib.sh   (from sprite/bin)
 //   setup/      bootstrap.sh, install-tool.sh, tools/*.sh     (from sprite/setup)
 //   extension/  the remote extension, loaded with pi -e        (from src/remote)
 //   manifest.json { version, hash }

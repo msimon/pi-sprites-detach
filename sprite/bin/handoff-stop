@@ -1,0 +1,44 @@
+#!/bin/bash
+# handoff-stop <jobId>: stop a job's run in progress (/handoff pull --abort, the job
+# browser's Abort).
+#
+# pi runs under sudo in its own namespace, so a signal to the runner's process group
+# would not reach it. Instead: TERM the runner (its trap records `aborted` once pi is
+# gone), TERM pi and its tools (found by HANDOFF_JOB_ID), KILL whatever is left after
+# 20 s. If the runner could not record it, mark the job aborted here.
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-stop <jobId>}
+dir=$HANDOFF_STATE/$job
+status=$dir/status.json
+[ -f "$dir/job.json" ] || { echo "no job $job on this Sprite" >&2; exit 2; }
+
+stopped=false
+if runner_alive "$job"; then
+  stopped=true
+  runner=$(cat "$dir/runner.pid")
+  echo "== $(now) handoff-stop: stopping runner $runner" >>"$dir/runner.log"
+  kill -TERM "$runner" 2>/dev/null
+  # shellcheck disable=SC2046  # one pid per word
+  kill -TERM $(job_pids "$job") 2>/dev/null
+  for _ in $(seq 40); do
+    runner_alive "$job" || break
+    sleep 0.5
+  done
+  if runner_alive "$job"; then
+    # shellcheck disable=SC2046
+    kill -KILL "$runner" $(job_pids "$job") 2>/dev/null
+    sleep 1
+  fi
+fi
+
+state=$(jq -r '.state // empty' "$status" 2>/dev/null)
+if [ "$state" = running ] || [ "$state" = preparing ]; then
+  json_merge "$status" "$(jq -n --arg t "$(now)" '{state:"aborted", runEndedAt:$t}')"
+fi
+# A KILLed runner leaves its hold behind; it expires in 5 minutes anyway.
+"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/handoff-$job" >/dev/null 2>&1 || true
+
+emit "$(jq -c --argjson s "$stopped" '{stopped:$s, status:.}' "$status")"

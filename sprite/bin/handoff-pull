@@ -1,0 +1,50 @@
+#!/bin/bash
+# handoff-pull <jobId> [--abort]: get a job ready to be brought back to the laptop.
+#
+# Refuses while a run is in progress unless --abort, which stops it first. For a git
+# job, commits whatever the agent left uncommitted in its checkout and pushes the job
+# branch, so origin has all of the work. Deletes nothing: the laptop downloads the
+# session file next and only then runs handoff-clean.
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-pull <jobId> [--abort]}
+abort=${2:-}
+dir=$HANDOFF_STATE/$job
+job_json=$dir/job.json
+status=$dir/status.json
+[ -f "$job_json" ] || { echo "no job $job on this Sprite" >&2; exit 2; }
+
+if runner_alive "$job"; then
+  if [ "$abort" != --abort ]; then
+    emit "$(jq -c '{refused:"running", status:.}' "$status")"
+    exit 0
+  fi
+  "$HANDOFF_HOME/bin/handoff-stop" "$job" >/dev/null || { echo "could not stop $job" >&2; exit 1; }
+fi
+
+get() { jq -r "$1 // empty" "$job_json"; }
+protocol=$(get .protocol)
+checkout=$(get .checkout)
+branch=$(get .jobBranch)
+
+snapshot=null
+head=null
+if [ "$protocol" = git ] && [ -d "$checkout" ]; then
+  cd "$checkout" || exit 1
+  # Same rule as on the laptop: dependency folders never travel, even when the repo
+  # does not ignore them.
+  git add -A -- . ':(exclude,glob)**/node_modules/**' ':(exclude,glob)**/.venv/**' || exit 1
+  if ! git diff --cached --quiet; then
+    git commit --no-verify -q -m "pi-handoff: uncommitted work at pull" \
+      -m "Committed by /handoff pull so everything the job did is on its branch." || exit 1
+    snapshot=$(git rev-parse HEAD | jq -R .)
+  fi
+  git push --no-verify -q origin "HEAD:refs/heads/$branch" || { echo "git push of $branch failed" >&2; exit 1; }
+  head=$(git rev-parse HEAD | jq -R .)
+fi
+
+emit "$(jq -c --argjson snap "$snapshot" --argjson head "$head" \
+  --argjson bytes "$(stat -c %s "$dir/session.jsonl" 2>/dev/null || echo 0)" \
+  '{status:., snapshot:$snap, head:$head, sessionBytes:$bytes}' "$status")"

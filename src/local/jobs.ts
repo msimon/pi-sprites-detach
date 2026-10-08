@@ -81,6 +81,9 @@ export interface LocalJob {
   lastAssistantText?: string;
   questions?: Question[];
   error?: string;
+  /** Set by /handoff pull: the job's conversation on the laptop, and the local worktree. */
+  pulledSessionFile?: string;
+  worktree?: string;
 }
 
 /** The conversation's name without the ` [<jobId>]` suffix the job session carries. */

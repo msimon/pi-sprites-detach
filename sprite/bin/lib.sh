@@ -11,6 +11,28 @@ SPRITE_ENV=/.sprite/bin/sprite-env
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# emit <json>: the one result line the laptop reads (src/local/exec.ts JSON_MARKER).
+emit() { printf '%s%s\n' '@@handoff ' "$1"; }
+
+# runner_alive <jobId>: whether the job's handoff-run is still going.
+runner_alive() {
+  local pid
+  pid=$(cat "$HANDOFF_STATE/$1/runner.pid" 2>/dev/null) || return 1
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# job_pids <jobId>: this user's processes started for the job (pi and its tools), found
+# by the HANDOFF_JOB_ID handoff-run passes to pi. Not the runner itself.
+job_pids() {
+  local p
+  for p in /proc/[0-9]*; do
+    [ -r "$p/environ" ] || continue
+    if tr '\0' '\n' <"$p/environ" 2>/dev/null | grep -qx "HANDOFF_JOB_ID=$1"; then
+      echo "${p#/proc/}"
+    fi
+  done
+}
+
 # json_merge <file> <json>: shallow-merge a JSON object into a JSON file, atomically.
 json_merge() {
   local file=$1 patch=$2 tmp

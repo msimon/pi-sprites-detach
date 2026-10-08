@@ -14,6 +14,8 @@ export const JOBS_DIR = join(HANDOFF_HOME, "jobs");
 export const SPRITE_BUILD_DIR = join(HANDOFF_HOME, "sprite");
 /** Marc's own extensions for the Sprite (remote.replace targets); synced like any sync path. */
 export const USER_EXTENSIONS_DIR = join(HANDOFF_HOME, "extensions");
+/** Local worktrees made by `/handoff pull --worktree`: <repo>/<jobId> under it. */
+export const WORKTREES_DIR = join(HOME, "pi-handoff", "worktrees");
 
 /** Root of this package (the repository, or the installed package). */
 export const PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
