@@ -1,12 +1,14 @@
 #!/bin/bash
-# bootstrap.sh [node-version]: base setup of a fresh Sprite for pi-handoff. Idempotent.
+# bootstrap.sh [node-version]: what pi-handoff needs on a fresh Sprite. Idempotent.
 #
-# Reproduces M0: Node at the laptop's version as the nvm default, pi as a managed
-# install, the CLI tools pi's extensions expect, a UTF-8 locale and git settings.
+# Node at the laptop's version as the nvm default, pi as a managed install, a UTF-8
+# locale and git settings. Nothing else: CLI tools your extensions use (rg, fd,
+# ast-grep, agent-browser…) are optional and go in remote.tools in the config, which
+# /handoff sync installs at the laptop's version from the recipes in tools/.
 # Interactive logins are not done here; run them yourself afterwards:
-#   sprite exec -s <sprite> --tty -- pi        then /login for each provider
-#   sprite exec -s <sprite> --tty -- gh auth login && gh auth setup-git
-# Long-running: start it detached, or from a --tty session you keep open.
+#   sprite exec -s <sprite> --tty -- pi        then /login for each model provider
+#   sprite exec -s <sprite> --tty -- bash -lc 'gh auth login && gh auth setup-git'
+# Takes a minute or two: start it detached, never inside one sprite exec.
 set -euo pipefail
 here=$(dirname "$(readlink -f "$0")")
 # shellcheck source=../bin/lib.sh
@@ -41,27 +43,7 @@ if [ ! -x "$HOME/.pi/agent/bin/pi" ]; then
   curl -fsSL https://pi.dev/install.sh | sh
 fi
 
-echo "== apt packages"
-need=()
-command -v rg >/dev/null || need+=(ripgrep)
-command -v fdfind >/dev/null || need+=(fd-find)
-dpkg -s locales >/dev/null 2>&1 || need+=(locales)
-if [ ${#need[@]} -gt 0 ]; then
-  sudo apt-get update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${need[@]}"
-fi
-mkdir -p "$HOME/.local/bin"
-[ -e "$HOME/.local/bin/fd" ] || ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd"
-
-echo "== npm CLI tools"
-# nvm's global bin is not on the PATH, so global tools go to ~/.local.
-command -v pnpm >/dev/null || npm install -g --prefix "$HOME/.local" pnpm
-command -v ast-grep >/dev/null || npm install -g --prefix "$HOME/.local" --allow-scripts=@ast-grep/cli @ast-grep/cli
-
 echo "== locale"
-if ! locale -a 2>/dev/null | grep -qi '^en_GB.utf8$'; then
-  sudo locale-gen en_GB.UTF-8
-fi
 grep -q '^export LANG=C.UTF-8' "$HOME/.profile" || printf 'export LANG=C.UTF-8\nexport LC_ALL=C.UTF-8\n' >>"$HOME/.profile"
 
 echo "== git"

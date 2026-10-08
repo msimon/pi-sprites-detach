@@ -60,7 +60,7 @@ pi-handoff/
   src/local/        pi extension loaded on the laptop: /handoff commands, config sync, status line, polling, notifications
   src/remote/       pi extension loaded only for job runs on the Sprite: briefing, final message
   sprite/bin/       handoff-run (Tasks API hold, checkout, mount namespace, pi, status), handoff-sync-apply, lib.sh
-  sprite/setup/     bootstrap.sh (base Sprite: Node, pi, CLI tools, locale, git config), install-tool.sh, tools/<name>.sh recipes
+  sprite/setup/     bootstrap.sh (what pi-handoff needs: Node, pi, locale, git config; deletes the image's npm-installed pi first, whose migration by the install script hangs on the overlay with EXDEV), install-tool.sh, tools/<name>.sh recipes for optional CLI tools (agent-browser, rg, fd, pnpm, ast-grep), installed through remote.tools
   examples/         user extensions the default config refers to (remote-ask.ts)
   docs/plan.md      this file
 ```
