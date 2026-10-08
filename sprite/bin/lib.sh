@@ -27,7 +27,7 @@ proc_start() {
 pid_record() { echo "$1 $(proc_start "$1")" >"$2"; }
 pid_alive() {
   local pid start
-  read -r pid start <"$1" 2>/dev/null || return 1
+  [ -f "$1" ] && read -r pid start <"$1" || return 1
   [ -n "$pid" ] && [ -n "$start" ] && [ "$(proc_start "$pid")" = "$start" ]
 }
 pid_of() { cut -d' ' -f1 "$1" 2>/dev/null; }
