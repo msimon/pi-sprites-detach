@@ -81,17 +81,41 @@ export async function ensureSpriteBuild(): Promise<SpriteBuild> {
 
   if ((await readManifest())?.hash === digest) return { dir: SPRITE_BUILD_DIR, hash: digest, version };
 
-  // Build next to the target and swap, so a half-built folder is never synced.
-  const next = `${SPRITE_BUILD_DIR}.next`;
-  await rm(next, { recursive: true, force: true });
-  for (const file of files) {
-    const target = join(next, file.target);
-    await mkdir(join(target, ".."), { recursive: true });
-    await cp(file.source, target);
-    await chmod(target, file.mode);
+  let pending = building.get(digest);
+  if (pending === undefined) {
+    pending = build(files, digest, version).finally(() => building.delete(digest));
+    building.set(digest, pending);
   }
-  await writeFile(join(next, "manifest.json"), `${JSON.stringify({ version, hash: digest }, null, 2)}\n`);
-  await rm(SPRITE_BUILD_DIR, { recursive: true, force: true });
-  await rename(next, SPRITE_BUILD_DIR);
+  await pending;
   return { dir: SPRITE_BUILD_DIR, hash: digest, version };
+}
+
+/** Builds in progress in this process, so concurrent handoffs share one. */
+const building = new Map<string, Promise<void>>();
+
+/**
+ * Build next to the target and swap, so a half-built folder is never synced. Each
+ * build has its own folder: another pi window may be building the same one, and if
+ * it swaps first, its result is ours.
+ */
+async function build(files: Awaited<ReturnType<typeof sources>>, digest: string, version: string): Promise<void> {
+  const next = `${SPRITE_BUILD_DIR}.next-${process.pid}-${digest}`;
+  try {
+    await rm(next, { recursive: true, force: true });
+    for (const file of files) {
+      const target = join(next, file.target);
+      await mkdir(join(target, ".."), { recursive: true });
+      await cp(file.source, target);
+      await chmod(target, file.mode);
+    }
+    await writeFile(join(next, "manifest.json"), `${JSON.stringify({ version, hash: digest }, null, 2)}\n`);
+    try {
+      await rm(SPRITE_BUILD_DIR, { recursive: true, force: true });
+      await rename(next, SPRITE_BUILD_DIR);
+    } catch (error: unknown) {
+      if ((await readManifest())?.hash !== digest) throw error;
+    }
+  } finally {
+    await rm(next, { recursive: true, force: true });
+  }
 }
