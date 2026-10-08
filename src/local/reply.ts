@@ -53,7 +53,11 @@ export async function replyJob(job: LocalJob, text: string, progress: (text: str
     if (result.refused === "running") {
       const merged = result.status ? mergeStatus(job, result.status) : undefined;
       if (merged !== undefined) await writeJob(merged);
-      throw new Error(`${job.jobId} is still running; reply once it finishes`);
+      throw new Error(
+        (merged ?? job).state === "joined"
+          ? `${job.jobId} is joined: pi is live on the Sprite, so type there (/handoff join ${job.jobId} reattaches)`
+          : `${job.jobId} is still running; reply once it finishes`,
+      );
     }
   } finally {
     await rm(tmp, { recursive: true, force: true });

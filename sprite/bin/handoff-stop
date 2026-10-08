@@ -39,9 +39,11 @@ if runner_alive "$job"; then
 fi
 
 state=$(jq -r '.state // empty' "$status" 2>/dev/null)
-if [ "$state" = running ] || [ "$state" = preparing ]; then
+if [ "$state" = running ] || [ "$state" = preparing ] || [ "$state" = joined ]; then
   json_merge "$status" "$(jq -n --arg t "$(now)" '{state:"aborted", runEndedAt:$t}')"
 fi
+# A joined pi's tmux session closes with it; make sure nothing is left attached to it.
+tmux kill-session -t "=$(join_session "$job")" 2>/dev/null || true
 # A KILLed runner leaves its hold behind; it expires in 5 minutes anyway.
 "$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/handoff-$job" >/dev/null 2>&1 || true
 
