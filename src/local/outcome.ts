@@ -20,6 +20,8 @@ export interface OutcomeCard {
   /** Markdown. */
   body: string;
   footer: string[];
+  /** Never cut (Show full message in the job browser). */
+  full?: boolean;
 }
 
 export function outcomeLabel(state: JobState): string {
@@ -33,7 +35,8 @@ export function outcomeLabel(state: JobState): string {
   }
 }
 
-function outcomeBody(job: LocalJob): string {
+/** The job's outcome as Markdown: final message, questions or error. */
+export function outcomeBody(job: LocalJob): string {
   switch (job.state) {
     case "done":
       return job.lastAssistantText?.trim() || "Finished.";
@@ -56,7 +59,7 @@ function outcomeBody(job: LocalJob): string {
   }
 }
 
-export function buildOutcomeCard(job: LocalJob): OutcomeCard {
+export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}): OutcomeCard {
   const footer: string[] = [];
   if (job.jobBranch !== undefined) footer.push(`Branch ${job.jobBranch} on origin.`);
   return {
@@ -66,6 +69,7 @@ export function buildOutcomeCard(job: LocalJob): OutcomeCard {
     title: conversationName(job),
     body: outcomeBody(job),
     footer,
+    ...(options.full ? { full: true } : {}),
   };
 }
 
@@ -105,7 +109,7 @@ function renderCard(card: OutcomeCard, expanded: boolean, theme: Theme): Compone
     box.addChild(new Spacer(1));
     const body = new Markdown(card.body, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("toolOutput", text) });
     const hint = theme.fg("dim", `… (${keyText("app.tools.expand")} to expand)`);
-    box.addChild(expanded ? body : new Clipped(body, COLLAPSED_LINES, hint));
+    box.addChild(expanded || card.full === true ? body : new Clipped(body, COLLAPSED_LINES, hint));
   }
   if (card.footer.length > 0) {
     box.addChild(new Spacer(1));

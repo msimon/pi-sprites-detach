@@ -1,23 +1,33 @@
 // pi-handoff local extension, loaded on the laptop.
 //
-//   /handoff [prompt]   hand the conversation off to the Sprite as a new job
-//   /handoff sync       bring the Sprite's pi setup in line with the laptop
-//   /handoff status     list jobs
+//   /handoff [prompt]          hand the conversation off to the Sprite as a new job
+//   /handoff sync              bring the Sprite's pi setup in line with the laptop
+//   /handoff status [filter]   browse jobs (all, running, needs-input, done, failed, aborted, pulled)
 //
 // Does nothing when loaded inside a handoff run on the Sprite.
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { CONFIG_FILE } from "./paths.ts";
+import {
+  ACTION_LABELS,
+  type BrowserResult,
+  type BrowserState,
+  JobBrowser,
+  jobActions,
+  plainList,
+} from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { ensureSpriteBuild } from "./install.ts";
-import { conversationName, listJobs } from "./jobs.ts";
-import { registerOutcomeRenderer } from "./outcome.ts";
+import { conversationName, JOB_FILTERS, listJobs, parseFilter, readJob } from "./jobs.ts";
+import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
+import { CONFIG_FILE } from "./paths.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
-import { describeOutcome, HandoffRuntime } from "./runtime.ts";
+import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 const SUBCOMMANDS = ["sync", "status"] as const;
+/** Filters as typed after `status` (dashes instead of underscores). */
+const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 
 export default function handoffLocal(pi: ExtensionAPI): void {
   if (process.env.HANDOFF_JOB_ID !== undefined) return;
@@ -40,13 +50,20 @@ export default function handoffLocal(pi: ExtensionAPI): void {
 
   pi.registerCommand("handoff", {
     description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status)",
-    getArgumentCompletions: (prefix) =>
-      SUBCOMMANDS.filter((s) => s.startsWith(prefix.trim())).map((s) => ({ value: s, label: s })),
+    getArgumentCompletions: (prefix) => {
+      const text = prefix.trimStart();
+      if (text.startsWith("status ")) {
+        const typed = text.slice("status ".length).trim();
+        return TYPED_FILTERS.filter((f) => f.startsWith(typed)).map((f) => ({ value: `status ${f}`, label: f }));
+      }
+      return SUBCOMMANDS.filter((s) => s.startsWith(text.trim())).map((s) => ({ value: s, label: s }));
+    },
     handler: async (args, ctx) => {
       const trimmed = args.trim();
+      const [subcommand = "", ...rest] = trimmed.split(/\s+/);
       try {
         if (trimmed === "sync") await syncCommand(ctx);
-        else if (trimmed === "status") await statusCommand(ctx, runtime);
+        else if (subcommand === "status") await statusCommand(pi, ctx, runtime, rest.join(" "));
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         ctx.ui.notify(`[pi-handoff] ${(error as Error).message}`, "error");
@@ -91,17 +108,65 @@ async function syncCommand(ctx: ExtensionCommandContext): Promise<void> {
   ctx.ui.notify(lines.join("\n"), "info");
 }
 
-async function statusCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime): Promise<void> {
-  await runtime.poll({ all: true });
-  const jobs = (await listJobs()).filter((j) => j.state !== "pulled");
-  if (jobs.length === 0) {
-    ctx.ui.notify("☁ No handoff jobs.", "info");
+/**
+ * The job browser. Enter on a job opens its actions; Esc there goes back to the list
+ * with the same filter and selection, Esc in the list closes it.
+ */
+async function statusCommand(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  typedFilter: string,
+): Promise<void> {
+  const filter = typedFilter === "" ? "all" : parseFilter(typedFilter);
+  if (filter === undefined) {
+    ctx.ui.notify(`Unknown filter "${typedFilter}". Use one of: ${TYPED_FILTERS.join(", ")}.`, "error");
     return;
   }
-  const lines = jobs.map((job) => {
-    const { label, body } = describeOutcome(job);
-    const branch = job.jobBranch === undefined ? "" : `  ${job.jobBranch}`;
-    return `${job.jobId}  ${label}  ${job.jobName}${branch}${body === "" ? "" : `\n    ${body}`}`;
+  if (!ctx.hasUI) {
+    await runtime.poll({ all: true });
+    ctx.ui.notify(plainList(await listJobs(), filter, Date.now()), "info");
+    return;
+  }
+
+  const state: BrowserState = { filter, refreshing: true };
+  for (;;) {
+    const picked = await browse(ctx, runtime, state);
+    if (picked === undefined) return;
+    state.filter = picked.filter;
+    state.selectedId = picked.jobId;
+    state.refreshing = false;
+
+    const job = await readJob(picked.jobId);
+    if (job === undefined) continue;
+    const actions = jobActions(job);
+    const back = "← Back to the list";
+    const choice = await ctx.ui.select(`${job.jobId} ${outcomeLabel(job.state)} · ${conversationName(job)}`, [
+      ...actions.map((action) => ACTION_LABELS[action]),
+      back,
+    ]);
+    const action = actions.find((a) => ACTION_LABELS[a] === choice);
+    if (action === undefined) continue;
+    if (action === "show") pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
+    return;
+  }
+}
+
+/** Open the browser on the local records; on the first open, refresh them from the Sprite meanwhile. */
+async function browse(
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  state: BrowserState,
+): Promise<BrowserResult | undefined> {
+  const jobs = await listJobs();
+  return ctx.ui.custom<BrowserResult | undefined>((tui, theme, _keybindings, done) => {
+    const view = new JobBrowser(theme, jobs, state, () => tui.requestRender(), done);
+    if (state.refreshing) {
+      void runtime
+        .poll({ all: true })
+        .catch(() => undefined)
+        .then(async () => view.setJobs(await listJobs(), false));
+    }
+    return view;
   });
-  ctx.ui.notify(lines.join("\n"), "info");
 }
