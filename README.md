@@ -79,9 +79,10 @@ Then run `/handoff sync` in pi. It copies your pi setup to the Sprite (see Confi
 | `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]` | Bring a job back: its conversation becomes a local session, its branch is fetched, and the Sprite is cleaned up. |
 | `/handoff join [job] [--abort]` | Work with a job's agent live on the Sprite, without pulling: pi opens in a cmux split next to this pane (outside cmux, pi-handoff prints the command to run in any terminal). Close the pane whenever you like: the agent finishes its turn, pi quits once nobody is attached, and the usual card appears. `--abort` stops a headless run first; without it pi asks. |
 | `/handoff watch [job]` | Follow a run as it happens, read-only, in a full-screen view: the agent's text, its tool calls with their output. On a finished job still on the Sprite it replays its last run. Scroll with ↑/↓ and PgUp/PgDn, `End` follows the latest line, `t` shows or hides the thinking (hidden by default), `e` unfolds the tool output, `Esc` closes (that stops the stream; the job keeps running). Not for a joined job: attach to it with `/handoff join`. |
+| `/handoff cleanup [job] [--discard] [--remote]` | Remove what a pull left on this laptop for a job: its worktree (from `pull --worktree`), the local branch made for it, and the fetched `origin/<branch>`. Only when its work is merged into the base branch (a squash-merged pull request counts), and not over uncommitted changes in the worktree; `--discard` removes it anyway. `--remote` also deletes the branch on origin. It shows what it will remove and asks first. The job's conversation is kept. |
 | `/handoff sync` | Bring the Sprite in line with your pi setup now (handoff and reply do this first anyway). |
 
-The job id can be left out when only one job fits; otherwise pi asks. A handoff prompt cannot start with `sync`, `status`, `reply`, `pull`, `join` or `watch`, since those words are read as the subcommand.
+The job id can be left out when only one job fits; otherwise pi asks. A handoff prompt cannot start with `sync`, `status`, `reply`, `pull`, `join`, `watch` or `cleanup`, since those words are read as the subcommand.
 
 Pull options:
 
@@ -109,7 +110,7 @@ The package also installs a skill and six tools, so you can say "I have to leave
 - **Status line**: `☁ 1 running · 1 needs input · 2 done`, counting every job not yet pulled.
 - **Outcome card**: when a run ends, a card in the open conversation with the agent's last message or its question, plus how to continue (`/handoff reply …`) or bring it back (`/handoff pull … --switch`). Cards are never sent to the model.
 - **cmux notification** to the pane that handed off (or replied), when run inside cmux.
-- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/O/N/D/F/X/P to jump to one (O is for joined), Enter for the job's actions (reply, join on the Sprite, show the full message, watch it, pull with its context into this conversation, pull and open, pull and stay, abort a run, open a pulled conversation or bring its context here), Esc to close. A joined job is counted apart from the running ones: `☁ 1 running · 1 joined`.
+- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/O/N/D/F/X/P to jump to one (O is for joined), Enter for the job's actions (reply, join on the Sprite, show the full message, watch it, pull with its context into this conversation, pull and open, pull and stay, abort a run, open a pulled conversation or bring its context here, clean up a pulled job's worktree and branch), Esc to close. A joined job is counted apart from the running ones: `☁ 1 running · 1 joined`.
 
 ## Config
 
