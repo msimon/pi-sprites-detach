@@ -92,17 +92,18 @@ class Clipped implements Component {
   }
 }
 
-const STATE_COLOR = { done: "success", needs_input: "warning", error: "error" } as const;
+/** Same backgrounds as tool results (the bash box): green done, red failed, grey otherwise. */
+const STATE_BG = { done: "toolSuccessBg", error: "toolErrorBg" } as const;
 
 function renderCard(card: OutcomeCard, expanded: boolean, theme: Theme): Component {
-  const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-  const color = STATE_COLOR[card.state as keyof typeof STATE_COLOR] ?? "muted";
+  const bg = STATE_BG[card.state as keyof typeof STATE_BG] ?? "toolPendingBg";
+  const box = new Box(1, 1, (text) => theme.bg(bg, text));
   box.addChild(
-    new Text(`${theme.fg(color, theme.bold(`☁ Job ${card.jobId} ${card.label}`))}  ${theme.fg("customMessageText", card.title)}`, 0, 0),
+    new Text(`${theme.fg("toolTitle", theme.bold(`☁ Job ${card.jobId} ${card.label}`))}  ${theme.fg("muted", card.title)}`, 0, 0),
   );
   if (card.body !== "") {
     box.addChild(new Spacer(1));
-    const body = new Markdown(card.body, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("customMessageText", text) });
+    const body = new Markdown(card.body, 0, 0, getMarkdownTheme(), { color: (text) => theme.fg("toolOutput", text) });
     const hint = theme.fg("dim", `… (${keyText("app.tools.expand")} to expand)`);
     box.addChild(expanded ? body : new Clipped(body, COLLAPSED_LINES, hint));
   }
