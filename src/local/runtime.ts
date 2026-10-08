@@ -24,7 +24,7 @@ import {
 } from "./jobs.ts";
 import { cmuxNotify } from "./notify.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel } from "./outcome.ts";
-import { REMOTE_STATE } from "./paths.ts";
+import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
 
 const POLL_MS = 45_000;
 const STATUS_KEY = "handoff";
@@ -63,6 +63,16 @@ for j in "$@"; do
 done
 ${emitJson("$o", `--argjson o "$out"`)}
 `;
+
+/**
+ * Remove a pulled job from the Sprite (handoff-clean). Safe to repeat: a job already
+ * gone is a no-op. Refused (throws) while a run is in progress.
+ */
+export async function cleanSprite(job: LocalJob): Promise<void> {
+  await spriteJson(job.sprite, `exec "${REMOTE_HANDOFF_HOME}/bin/handoff-clean" "$@"`, [job.jobId], {
+    timeoutMs: 120_000,
+  });
+}
 
 const isActive = (job: LocalJob): boolean => ACTIVE_STATES.includes(job.state);
 
@@ -119,12 +129,16 @@ export class HandoffRuntime {
     return this.#surface !== undefined ? job.surface === this.#surface : job.ownerPid === process.pid;
   }
 
-  /** Read status.json for active jobs (this window's, or all) and react to changes. */
+  /**
+   * Read status.json for active jobs (this window's, or all) and react to changes;
+   * retry the Sprite cleanup of pulled jobs whose cleanup failed at pull.
+   */
   async poll({ all }: { all: boolean }): Promise<void> {
     if (this.#ticking) return;
     this.#ticking = true;
     try {
-      const jobs = (await listJobs()).filter((j) => isActive(j) && (all || this.#owns(j)));
+      const listed = (await listJobs()).filter((j) => all || this.#owns(j));
+      const jobs = listed.filter(isActive);
       const bySprite = new Map<string, LocalJob[]>();
       for (const job of jobs) bySprite.set(job.sprite, [...(bySprite.get(job.sprite) ?? []), job]);
 
@@ -139,6 +153,16 @@ export class HandoffRuntime {
           const status = statuses[job.jobId];
           if (status !== null && status !== undefined) await this.apply(job, status);
         }
+      }
+
+      for (const job of listed.filter((j) => j.state === "pulled" && j.cleanupPending)) {
+        try {
+          await cleanSprite(job);
+        } catch {
+          continue; // Still failing: next tick.
+        }
+        const { cleanupPending: _done, ...cleaned } = job;
+        await writeJob({ ...cleaned, updatedAt: new Date().toISOString() });
       }
       await this.refreshStatusLine();
     } finally {

@@ -18,7 +18,7 @@ import { detectGit } from "./git.ts";
 import { type LocalJob, writeJob } from "./jobs.ts";
 import { RETURN_MESSAGE, type ReturnDetails } from "./outcome.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE, WORKTREES_DIR } from "./paths.ts";
-import { mergeStatus, type RemoteStatus } from "./runtime.ts";
+import { cleanSprite, mergeStatus, type RemoteStatus } from "./runtime.ts";
 
 export interface PullOptions {
   /** Stop a run in progress first instead of refusing. */
@@ -94,7 +94,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     progress("cleaning up the Sprite…");
     let cleanupError: string | undefined;
     try {
-      await spriteJson(job.sprite, runScript("handoff-clean"), [job.jobId], { timeoutMs: 120_000 });
+      await cleanSprite(job);
     } catch (error: unknown) {
       cleanupError = (error as Error).message;
     }
@@ -105,6 +105,8 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
       updatedAt: new Date().toISOString(),
       pulledSessionFile: sessionFile,
       ...(worktree === undefined ? {} : { worktree }),
+      // The status poll retries it (HandoffRuntime.poll).
+      ...(cleanupError === undefined ? {} : { cleanupPending: true }),
     };
     await writeJob(current);
     return {

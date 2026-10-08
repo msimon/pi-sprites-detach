@@ -84,6 +84,8 @@ export interface LocalJob {
   /** Set by /handoff pull: the job's conversation on the laptop, and the local worktree. */
   pulledSessionFile?: string;
   worktree?: string;
+  /** The Sprite cleanup failed at pull; the status poll retries it until it succeeds. */
+  cleanupPending?: boolean;
 }
 
 /** The conversation's name without the ` [<jobId>]` suffix the job session carries. */

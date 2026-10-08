@@ -392,7 +392,9 @@ async function runPull(
       : "Its conversation is saved with this folder's sessions: open it from /resume or /handoff status.",
     workLine(pulled),
     ...(result.snapshot ? ["The agent's uncommitted changes were committed and pushed first."] : []),
-    result.cleanupError === undefined ? "Removed from the Sprite." : `Could not clean up the Sprite: ${result.cleanupError}`,
+    result.cleanupError === undefined
+      ? "Removed from the Sprite."
+      : `Could not clean up the Sprite (${result.cleanupError}); it will be retried in the background.`,
   ];
   await runtime.refreshStatusLine();
   clearProgress(ctx);
