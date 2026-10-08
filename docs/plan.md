@@ -25,7 +25,7 @@ The motivating case: mid-task, Marc has to pick up his kid, closes the laptop, a
 4. **Each job has its own checkout** on the Sprite, under `<jobRoot>` (`~/jobs/<jobId>/`), so several jobs can come from the same folder. Each job's pi runs in its own mount namespace that shows the job's checkout at the original `/Users/marc/...` path (confirmed by S9), so paths in the conversation history stay valid and no path rewriting is needed. The path rule and `tool_call` rewrite below are kept only as a fallback if the namespace ever stops working.
 5. **The remote pi runs headless**, one run at a time per job: `pi -p --mode json --session <file> "<prompt>"`. Runs are sequential within a job and parallel across jobs.
 6. **The Sprite is held awake only while pi works**, via the Sprites Tasks API (5 min expiry, refreshed every 60 s, released on exit). When the run ends the Sprite pauses and stops billing compute.
-7. **Notifications land in the window that started the handoff**: a pi warning (`ctx.ui.notify`) plus `cmux notify` targeted at that pane (`CMUX_SURFACE_ID`).
+7. **Notifications land in the window that started the handoff**: an outcome card in the chat plus `cmux notify` targeted at that pane (`CMUX_SURFACE_ID`).
 8. **Pull refuses while a run is in progress.** `--abort` stops the run first; it is never implicit.
 9. **Pull cleans up the Sprite**: session file, the copied project files (`copyProjectFiles`), transfer files and the job's state dir are deleted. The job's worktree is removed (its work is on `origin`); the repo's cached clone and the npm `node_modules` cache stay warm.
 10. **Repo**: `msimon/pi-handoff`, private, topics `ops` + `perso`, TypeScript like `pi-reminders`.
@@ -220,19 +220,19 @@ A full-screen view in the style of `/tree` and `/model` (`ctx.ui.custom`). It wo
 2. Filters follow the job states: all (everything except pulled), running (starting, preparing, running), needs input, done, failed, aborted, pulled. A bar at the top shows them with their counts. Tab and Shift+Tab cycle through them; Ctrl+A/R/N/D/F/X/P jump to one, and the same key again goes back to all. `/handoff status <filter>` opens on that filter.
 3. One line per job: id, state, conversation name, branch, age. Jobs waiting on the user (needs input, failed, done) come first, newest first.
 4. A preview under the list follows the cursor: state, conversation, branch, times and the first ~8 lines of the last message, question or error.
-5. Enter opens the job's actions, only those that fit its state and are built: Show full message (posts the outcome card in the chat), Reply (M3), Pull it back, Abort, Open its session (M4), Watch (v2). Esc goes back to the list; Esc in the list closes it.
+5. Enter opens the job's actions, only those that fit its state and are built. A finished job (done, needs input, failed, aborted): Show full message (posts the outcome card in the chat), Reply (M3), Pull and open, Pull and stay here (M4). A running job: Abort (M4), which only stops the run (the job becomes `aborted`, to pull or reply to later), and Watch (v2). A pulled job: Open its conversation (M4). Esc goes back to the list; Esc in the list closes it.
 6. Without a UI (print or RPC mode) it prints the plain list.
 ### Reply: `/handoff reply [job] <text>`
 
-Refuse while the job is `running`. Start a new run of that job with `<text>` as the prompt. The run reuses the job's worktree and session file: pi loads the full history from the session file and appends `<text>` as the next user message. The job defaults to the only one when there is just one.
+Works on any job whose run has ended (done, needs input, failed, aborted): to answer its question, or to ask for more work on the same branch. Refuse while a run is in progress, and once the job is pulled (its Sprite state is gone; continue locally instead). Start a new run of that job with `<text>` as the prompt. The run reuses the job's worktree and session file: pi loads the full history from the session file and appends `<text>` as the next user message. The job defaults to the only one when there is just one.
 
 ### Pull: `/handoff pull [job] [--abort] [--switch] [--worktree]`
 
-1. Read `status.json`. If `running`: refuse, or with `--abort` kill the runner's process group, wait for exit, mark `aborted`.
-2. Git protocol: final snapshot commit and push on the Sprite (git protocol step 5); fetch the job branch locally; `--worktree` creates a local worktree for it.
-3. Download the job session file (`sprite file pull`) into the local session directory for the original folder, so it appears in `/resume` there. Reset its header `cwd` to the original folder (or the new worktree with `--worktree`) and append the return briefing.
-4. `--switch`: open the job session now (`switchSession`, a command-context operation). Otherwise the main session stays active.
-5. Clean up (decision 9) and mark the job `pulled`.
+1. On the Sprite (`handoff-pull`, one exec): if a run is in progress, refuse; with `--abort`, stop it first (`handoff-stop`: TERM to the runner's process group, KILL after 20 s; the runner marks the job `aborted`). Git protocol: commit whatever the agent left uncommitted in the job checkout (`git add -A`, `--no-verify`) and push the job branch (git protocol step 5). Returns the final status.
+2. Download the job session file (`sprite file pull`) into the local session directory of the original folder, as `<header timestamp>_<jobSessionId>.jsonl` like pi names its own, so it appears in `/resume` there. Set its header `cwd` to the original folder (or the new worktree with `--worktree`) and append the return briefing as a visible custom message (sent to the model, drawn as one line).
+3. Git protocol: fetch the job branch locally (`origin/<jobBranch>`); `--worktree` creates the local branch and a worktree for it (see Local worktrees).
+4. Clean up the Sprite (`handoff-clean`, decision 9) only once the session file is safely on the laptop, then mark the job `pulled` with the local session path.
+5. `--switch`: open the job session now (`switchSession`, a command-context operation). Otherwise the main session stays active; the job browser's Open its conversation opens it later, as does `/resume`.
 
 ## Spikes — verify before building
 
