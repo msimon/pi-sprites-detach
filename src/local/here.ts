@@ -23,14 +23,23 @@ const FINAL_MAX = 3000;
  * The job's own entries: its active branch without what it shares with the main
  * session (the copy keeps entry ids) and without the return briefing added at pull.
  */
-export function jobOwnEntries(jobSessionFile: string, mainSessionFile: string): SessionEntry[] {
-  const shared = new Set<string>();
-  if (existsSync(mainSessionFile)) {
-    for (const entry of SessionManager.open(mainSessionFile).getEntries()) shared.add(entry.id);
+export function jobOwnEntries(jobSessionFile: string, mainSessionFile: string, forkLeafId?: string): SessionEntry[] {
+  const branch = SessionManager.open(jobSessionFile).getBranch();
+  // The copy keeps entry ids, so what follows the entry it was forked at is the job's own.
+  // That does not depend on the main session file, which may have moved since.
+  const forkAt = forkLeafId === undefined ? -1 : branch.findIndex((entry) => entry.id === forkLeafId);
+  let own: SessionEntry[];
+  if (forkAt >= 0) {
+    own = branch.slice(forkAt + 1);
+  } else {
+    const shared = new Set<string>();
+    if (existsSync(mainSessionFile)) {
+      for (const entry of SessionManager.open(mainSessionFile).getEntries()) shared.add(entry.id);
+    }
+    own = branch.filter((entry) => !shared.has(entry.id));
   }
-  return SessionManager.open(jobSessionFile)
-    .getBranch()
-    .filter((entry) => !shared.has(entry.id) && entry.type !== "session_info")
+  return own
+    .filter((entry) => entry.type !== "session_info")
     .filter((entry) => !(entry.type === "custom_message" && entry.customType === RETURN_MESSAGE));
 }
 
@@ -99,6 +108,31 @@ export function contextMessage(job: LocalJob, summary: string, git: string | und
   ].join("\n");
 }
 
+/** The context message for a pulled job: summarized with the session's model. */
+export async function buildJobContext(
+  ctx: ExtensionContext,
+  job: LocalJob,
+  progress: (text: string) => void,
+): Promise<{ content: string; details: ContextDetails }> {
+  const sessionFile = job.pulledSessionFile;
+  if (sessionFile === undefined || !existsSync(sessionFile)) {
+    throw new Error(`the conversation of ${job.jobId} is no longer at ${sessionFile ?? "its saved path"}`);
+  }
+  const entries = jobOwnEntries(sessionFile, job.mainSessionFile, job.forkLeafId === "" ? undefined : job.forkLeafId);
+  if (entries.length === 0) throw new Error(`${job.jobId} has nothing of its own to bring here`);
+  progress(`summarizing ${job.jobId}…`);
+  const summary = await summarize(ctx, entries);
+  const git = await gitContext(job);
+  return {
+    content: contextMessage(job, summary, git, sessionFile),
+    details: {
+      jobId: job.jobId,
+      ...(job.jobBranch === undefined ? {} : { jobBranch: job.jobBranch }),
+      sessionFile,
+    },
+  };
+}
+
 /** Summarize a pulled job and add its context to the current conversation. */
 export async function bringContextHere(
   pi: ExtensionAPI,
@@ -106,22 +140,6 @@ export async function bringContextHere(
   job: LocalJob,
   progress: (text: string) => void,
 ): Promise<void> {
-  const sessionFile = job.pulledSessionFile;
-  if (sessionFile === undefined || !existsSync(sessionFile)) {
-    throw new Error(`the conversation of ${job.jobId} is no longer at ${sessionFile ?? "its saved path"}`);
-  }
-  const entries = jobOwnEntries(sessionFile, job.mainSessionFile);
-  if (entries.length === 0) throw new Error(`${job.jobId} has nothing of its own to bring here`);
-  progress(`summarizing ${job.jobId}…`);
-  const summary = await summarize(ctx, entries);
-  const git = await gitContext(job);
-  const details: ContextDetails = {
-    jobId: job.jobId,
-    ...(job.jobBranch === undefined ? {} : { jobBranch: job.jobBranch }),
-    sessionFile,
-  };
-  pi.sendMessage<ContextDetails>(
-    { customType: CONTEXT_MESSAGE, content: contextMessage(job, summary, git, sessionFile), display: true, details },
-    { triggerTurn: false },
-  );
+  const { content, details } = await buildJobContext(ctx, job, progress);
+  pi.sendMessage<ContextDetails>({ customType: CONTEXT_MESSAGE, content, display: true, details }, { triggerTurn: false });
 }

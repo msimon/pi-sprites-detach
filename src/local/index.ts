@@ -47,6 +47,7 @@ import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
+import { registerHandoffTools } from "./tools.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
@@ -79,6 +80,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
 
   const runtime = new HandoffRuntime(pi);
   registerOutcomeRenderer(pi);
+  registerHandoffTools(pi, runtime);
 
   pi.on("session_start", async (_event, ctx) => {
     try {

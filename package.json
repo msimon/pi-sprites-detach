@@ -19,6 +19,9 @@
   "pi": {
     "extensions": [
       "./src/local/index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "scripts": {

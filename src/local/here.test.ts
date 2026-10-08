@@ -48,6 +48,10 @@ test("jobOwnEntries: only what the job added after the handoff", () => {
     main.appendMessage(assistant("main answer"));
 
     assert.deepEqual(texts(jobOwnEntries(job.file, main.getSessionFile()!)), ["job prompt", "job answer"]);
+    // From the fork point alone: the main session file may have moved or been deleted.
+    assert.deepEqual(texts(jobOwnEntries(job.file, "/nonexistent/main.jsonl", leaf)), ["job prompt", "job answer"]);
+    // Without it, a missing main file means everything counts (nothing to compare with).
+    assert.equal(jobOwnEntries(job.file, "/nonexistent/main.jsonl").length, 4);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

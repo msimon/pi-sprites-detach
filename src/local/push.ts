@@ -3,7 +3,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { RemoteJob } from "../remote/job.ts";
 import { loadConfig, projectFilePatterns } from "./config.ts";
 import { emitJson, run, runOk, spriteJson } from "./exec.ts";
@@ -41,15 +41,29 @@ export interface PushResult {
   synced: string[];
 }
 
+/** What a handoff needs of pi: the command context has it all, a tool's has no waitForIdle. */
+export interface PushContext {
+  sessionManager: ExtensionContext["sessionManager"];
+  waitForIdle?: () => Promise<void>;
+}
+
+/**
+ * `fromLeafId`: fork the conversation at that entry instead of the current leaf, and do
+ * not wait for the turn to end. The model's handoff tool uses it, because it runs in
+ * the middle of a turn: the copy stops at the last completed assistant message.
+ */
 export async function pushJob(
-  ctx: ExtensionCommandContext,
+  ctx: PushContext,
   prompt: string,
   progress: (text: string) => void,
+  { fromLeafId }: { fromLeafId?: string } = {},
 ): Promise<PushResult> {
-  progress("waiting for the current turn to end…");
-  await ctx.waitForIdle();
+  if (fromLeafId === undefined && ctx.waitForIdle !== undefined) {
+    progress("waiting for the current turn to end…");
+    await ctx.waitForIdle();
+  }
   const mainSessionFile = ctx.sessionManager.getSessionFile();
-  const leafId = ctx.sessionManager.getLeafId();
+  const leafId = fromLeafId ?? ctx.sessionManager.getLeafId();
   if (mainSessionFile === undefined || leafId === null) {
     throw new Error("this session has no saved conversation to hand off");
   }
