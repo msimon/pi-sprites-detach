@@ -26,6 +26,7 @@ import {
   JOB_FILTERS,
   type LocalJob,
   listJobs,
+  matchesFilter,
   parseFilter,
   readJob,
 } from "./jobs.ts";
@@ -37,8 +38,21 @@ import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
 const PROGRESS_KEY = "handoff-progress";
-const SUBCOMMANDS = ["sync", "status", "pull"] as const;
-const PULL_FLAGS = ["--abort", "--switch", "--worktree"] as const;
+/** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
+const SUBCOMMANDS = [
+  { name: "sync", usage: "sync", description: "bring the Sprite's pi setup in line with the laptop" },
+  { name: "status", usage: "status [filter]", description: "browse jobs by state, pull or abort them" },
+  {
+    name: "pull",
+    usage: "pull [job] [--abort] [--switch] [--worktree]",
+    description: "bring a job's conversation and work back",
+  },
+] as const;
+const PULL_FLAGS = {
+  "--abort": "stop a run in progress first",
+  "--switch": "open its conversation after pulling",
+  "--worktree": "check the job branch out in a local worktree",
+} as const;
 /** Filters as typed after `status` (dashes instead of underscores). */
 const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 
@@ -70,18 +84,30 @@ export default function handoffLocal(pi: ExtensionAPI): void {
       const text = prefix.trimStart();
       if (text.startsWith("status ")) {
         const typed = text.slice("status ".length).trim();
-        return TYPED_FILTERS.filter((f) => f.startsWith(typed)).map((f) => ({ value: `status ${f}`, label: f }));
+        const jobs = await listJobs();
+        return TYPED_FILTERS.filter((f) => f.startsWith(typed)).map((f) => {
+          const count = jobs.filter((job) => matchesFilter(job, parseFilter(f) ?? "all")).length;
+          return { value: `status ${f}`, label: f, description: `${count} job${count === 1 ? "" : "s"}` };
+        });
       }
       if (text.startsWith("pull ")) {
         const words = text.slice("pull ".length).split(/\s+/);
         const typed = words.pop() ?? "";
         const head = ["pull", ...words].join(" ");
-        const jobs = (await listJobs()).filter((j) => j.state !== "pulled").map((j) => j.jobId);
-        return [...jobs, ...PULL_FLAGS]
-          .filter((w) => w.startsWith(typed) && !words.includes(w))
-          .map((w) => ({ value: `${head} ${w}`, label: w }));
+        const jobs = (await listJobs())
+          .filter((j) => j.state !== "pulled")
+          .map((j) => ({ word: j.jobId, description: `${outcomeLabel(j.state)} · ${conversationName(j)}` }));
+        const flags = Object.entries(PULL_FLAGS).map(([word, description]) => ({ word, description }));
+        return [...jobs, ...flags]
+          .filter(({ word }) => word.startsWith(typed) && !words.includes(word))
+          .map(({ word, description }) => ({ value: `${head} ${word}`, label: word, description }));
       }
-      return SUBCOMMANDS.filter((s) => s.startsWith(text.trim())).map((s) => ({ value: s, label: s }));
+      return SUBCOMMANDS.filter((s) => s.name.startsWith(text.trim())).map((s) => ({
+        // A trailing space opens the argument suggestions right away.
+        value: s.name === "sync" ? s.name : `${s.name} `,
+        label: s.usage,
+        description: s.description,
+      }));
     },
     handler: async (args, ctx) => {
       const trimmed = args.trim();
@@ -226,8 +252,10 @@ async function statusCommand(
 /** /handoff pull [job] [--abort] [--switch] [--worktree] */
 async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
-  const unknown = [...flags].filter((f) => !(PULL_FLAGS as readonly string[]).includes(f));
-  if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${PULL_FLAGS.join(", ")}`);
+  const unknown = [...flags].filter((f) => !Object.hasOwn(PULL_FLAGS, f));
+  if (unknown.length > 0) {
+    throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(PULL_FLAGS).join(", ")}`);
+  }
   const ids = words.filter((w) => !w.startsWith("--"));
   if (ids.length > 1) throw new Error("pull one job at a time");
 
