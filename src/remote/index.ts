@@ -3,14 +3,18 @@
 //
 // - adds the remote briefing to the system prompt on every run
 // - records the final assistant text for the notification
+// - in a joined pi (/handoff join, HANDOFF_JOINED): the briefing says the user is
+//   present, and pi quits once idle with nobody attached to its tmux session
 //
 // Asking the user is not built in: a user extension provides ask_user_question
 // (see examples/remote-ask.ts and `remote.replace` in the config).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildBriefing, detectInstallCommand } from "./briefing.ts";
+import { CHECK_MS, countClients, IdleRule } from "./idle.ts";
 import type { RemoteJob } from "./job.ts";
 
 const RESULT_MAX_CHARS = 4000;
@@ -18,6 +22,7 @@ const RESULT_MAX_CHARS = 4000;
 export default function handoffRemote(pi: ExtensionAPI): void {
   const jobDir = process.env.HANDOFF_DIR;
   if (process.env.HANDOFF_JOB_ID === undefined || jobDir === undefined) return;
+  const joined = process.env.HANDOFF_JOINED === "1";
 
   let job: RemoteJob;
   try {
@@ -29,7 +34,7 @@ export default function handoffRemote(pi: ExtensionAPI): void {
   }
 
   pi.on("before_agent_start", (event) => {
-    event.systemPromptOptions.sections.handoff_briefing = buildBriefing(job, detectInstallCommand(job));
+    event.systemPromptOptions.sections.handoff_briefing = buildBriefing(job, detectInstallCommand(job), { joined });
   });
 
   // The end of the turn. handoff-run reads this, and if its runner died before pi
@@ -39,6 +44,53 @@ export default function handoffRemote(pi: ExtensionAPI): void {
     const error = turnError(event.messages);
     const result = { text: text.slice(0, RESULT_MAX_CHARS), ...(error !== undefined ? { error } : {}) };
     writeFileSync(join(jobDir, "result.json"), `${JSON.stringify(result)}\n`);
+  });
+
+  const tmuxSession = process.env.HANDOFF_TMUX;
+  if (joined && tmuxSession !== undefined) watchIdle(pi, jobDir, tmuxSession);
+}
+
+/**
+ * Quit a joined pi once it is idle and nobody is attached (IdleRule). A new turn
+ * also means a question asked earlier was answered here, so its question.json goes:
+ * only a question left unanswered when pi quits makes the job `needs_input`.
+ */
+function watchIdle(pi: ExtensionAPI, jobDir: string, tmuxSession: string): void {
+  const started = Date.now();
+  const rule = new IdleRule();
+  let busy = false;
+  let ctx: ExtensionContext | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  pi.on("session_start", (_event, eventCtx) => {
+    ctx = eventCtx;
+    timer ??= setInterval(() => {
+      void attachedClients(tmuxSession).then((clients) => {
+        if (ctx !== undefined && rule.check({ busy, clients, sinceStart: Date.now() - started })) {
+          clearInterval(timer);
+          ctx.shutdown();
+        }
+      });
+    }, CHECK_MS);
+  });
+  pi.on("agent_start", () => {
+    busy = true;
+    rmSync(join(jobDir, "question.json"), { force: true });
+  });
+  pi.on("agent_end", () => {
+    busy = false;
+  });
+  pi.on("session_shutdown", () => {
+    if (timer !== undefined) clearInterval(timer);
+  });
+}
+
+/** Clients attached to the tmux session, or undefined when tmux cannot be asked. */
+function attachedClients(session: string): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    execFile("tmux", ["list-clients", "-t", `=${session}`], { timeout: 4_000 }, (error, stdout) => {
+      resolve(error === null ? countClients(stdout) : undefined);
+    });
   });
 }
 

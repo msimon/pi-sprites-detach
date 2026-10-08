@@ -37,10 +37,28 @@ pid_of() { cut -d' ' -f1 "$1" 2>/dev/null; }
 service_registered() { "$SPRITE_ENV" services get "handoff-$1" >/dev/null 2>&1; }
 service_delete() { "$SPRITE_ENV" services delete "handoff-$1" >/dev/null 2>&1 || true; }
 
-# runner_alive <jobId>: whether the job's run is in progress: its handoff-run is alive,
-# or its service is still registered (the runtime is about to start it again).
+# runner_alive <jobId>: whether the job's run is in progress: its handoff-run (or the
+# handoff-joined wrapper of a joined pi) is alive, or its service is still registered
+# (the runtime is about to start it again).
 runner_alive() {
   pid_alive "$HANDOFF_STATE/$1/runner.pid" || service_registered "$1"
+}
+
+# The tmux session a joined pi runs in (handoff-join).
+join_session() { echo "handoff-$1"; }
+
+# fix_stale_joined <jobId>: a job still marked `joined` whose wrapper is gone (the
+# Sprite environment restarted, or it was killed hard) ended without recording it:
+# record `done` now, with the last answer pi wrote. A joined pi is not a service, so
+# nothing brings it back; joining again starts a fresh one on the same conversation.
+fix_stale_joined() {
+  local dir=$HANDOFF_STATE/$1 text
+  [ "$(jq -r '.state // empty' "$dir/status.json" 2>/dev/null)" = joined ] || return 0
+  pid_alive "$dir/runner.pid" && return 0
+  text=$(jq '.text // null' "$dir/result.json" 2>/dev/null || echo null)
+  json_merge "$dir/status.json" "$(jq -n --arg t "$(now)" --argjson x "${text:-null}" \
+    '{state:"done", runEndedAt:$t, lastAssistantText:$x, error:null, question:null}')"
+  rm -f "$dir/runner.pid"
 }
 
 # job_pids <jobId>: this user's processes started for the job (pi and its tools), found
@@ -48,8 +66,9 @@ runner_alive() {
 job_pids() {
   local p
   for p in /proc/[0-9]*; do
-    [ -r "$p/environ" ] || continue
-    if tr '\0' '\n' <"$p/environ" 2>/dev/null | grep -qx "HANDOFF_JOB_ID=$1"; then
+    # Other users' environ files cannot be read; the shell reports a failed `<`
+    # itself, so the group, not tr, gets the 2>/dev/null.
+    if { tr '\0' '\n' <"$p/environ" | grep -qx "HANDOFF_JOB_ID=$1"; } 2>/dev/null; then
       echo "${p#/proc/}"
     fi
   done

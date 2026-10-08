@@ -27,18 +27,32 @@ export function detectInstallCommand(job: RemoteJob): string | undefined {
   return undefined;
 }
 
-export function buildBriefing(job: RemoteJob, installCommand: string | undefined): string {
+export interface BriefingOptions {
+  /** Interactive pi from /handoff join: the user is at the keyboard. */
+  joined?: boolean;
+}
+
+export function buildBriefing(job: RemoteJob, installCommand: string | undefined, options: BriefingOptions = {}): string {
   const lines: string[] = [];
   const n = (text: string): void => {
     lines.push(`${lines.length + 1}. ${text}`);
   };
 
-  n(
-    `Situation: you are running unattended on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. The user handed this conversation off because they are away. Earlier messages in this conversation happened on their Mac; from here on, every tool runs on this Linux machine.`,
-  );
-  n(
-    "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message.",
-  );
+  if (options.joined) {
+    n(
+      `Situation: you are running on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. Earlier messages in this conversation happened on their Mac, and earlier runs of this job may have run here unattended; from here on, every tool runs on this Linux machine.`,
+    );
+    n(
+      "The user is here now: they joined this job from their laptop and are reading and typing in this session, so you can work with them as usual. If they leave, this session ends once you finish your current turn.",
+    );
+  } else {
+    n(
+      `Situation: you are running unattended on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. The user handed this conversation off because they are away. Earlier messages in this conversation happened on their Mac; from here on, every tool runs on this Linux machine.`,
+    );
+    n(
+      "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message.",
+    );
+  }
   const missing =
     "If you need a file from the laptop that is not here, do not guess its contents: say which one and why, or ask.";
   if (job.protocol === "git") {
@@ -68,9 +82,11 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
       : `Dependencies: not installed yet. Run \`${installCommand}\` before running tests or builds.`,
   );
   n("Credentials: a GitHub token (git and gh) and web search are available. No other credentials are.");
-  n(
-    "End of run: finish with a short summary of what you did, what is left, and any assumptions. It becomes the notification the user reads first.",
-  );
+  if (!options.joined) {
+    n(
+      "End of run: finish with a short summary of what you did, what is left, and any assumptions. It becomes the notification the user reads first.",
+    );
+  }
 
   return lines.join("\n");
 }
