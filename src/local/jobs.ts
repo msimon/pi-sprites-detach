@@ -103,6 +103,8 @@ export interface LocalJob {
   worktree?: string;
   /** The Sprite cleanup failed at pull; the status poll retries it until it succeeds. */
   cleanupPending?: boolean;
+  /** Set by /handoff cleanup: the worktree and branches a pull left on the laptop are gone. */
+  cleanedAt?: string;
 }
 
 /** The conversation's name without the ` [<jobId>]` suffix the job session carries. */

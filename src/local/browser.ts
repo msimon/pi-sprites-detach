@@ -14,6 +14,7 @@ import {
   type LocalJob,
   matchesFilter,
 } from "./jobs.ts";
+import { canCleanup } from "./cleanup.ts";
 import { outcomeBody, outcomeLabel } from "./outcome.ts";
 
 /**
@@ -89,7 +90,18 @@ export function jobAge(job: LocalJob, now: number): string {
 }
 
 /** What Enter offers for a job; only actions that are built. */
-export type JobAction = "reply" | "join" | "show" | "watch" | "pullHere" | "pullOpen" | "pull" | "abort" | "open" | "here";
+export type JobAction =
+  | "reply"
+  | "join"
+  | "show"
+  | "watch"
+  | "pullHere"
+  | "pullOpen"
+  | "pull"
+  | "abort"
+  | "open"
+  | "here"
+  | "cleanup";
 
 export const ACTION_LABELS: Record<JobAction, string> = {
   reply: "Reply: answer or ask for more",
@@ -102,6 +114,7 @@ export const ACTION_LABELS: Record<JobAction, string> = {
   abort: "Abort the run",
   open: "Open its conversation",
   here: "Bring its context into this conversation",
+  cleanup: "Clean up: remove its worktree and branch (merged work only)",
 };
 
 export function jobActions(job: LocalJob): JobAction[] {
@@ -118,7 +131,10 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "joined":
       return ["join", "abort"];
     case "pulled":
-      return job.pulledSessionFile === undefined ? [] : ["open", "here"];
+      return [
+        ...(job.pulledSessionFile === undefined ? [] : (["open", "here"] as const)),
+        ...(canCleanup(job) ? (["cleanup"] as const) : []),
+      ];
   }
 }
 

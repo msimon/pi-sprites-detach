@@ -11,6 +11,8 @@
 //   /handoff join [job] [--abort]
 //                              work with a job's agent live on the Sprite (a cmux split)
 //   /handoff watch [job]       follow a run live (read-only), or replay a finished job's last run
+//   /handoff cleanup [job] [--discard] [--remote]
+//                              remove a pulled job's worktree and branches from the laptop
 //
 // A prompt for /handoff cannot start with one of these words; they are read as the
 // subcommand.
@@ -38,6 +40,7 @@ import {
   matchesFilter,
   parseFilter,
   readJob,
+  writeJob,
 } from "./jobs.ts";
 import { bringContextHere } from "./here.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
@@ -50,6 +53,7 @@ import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 import { registerHandoffTools } from "./tools.ts";
 import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from "./watch.ts";
+import { blockers, canCleanup, type CleanupOptions, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
@@ -65,6 +69,11 @@ const SUBCOMMANDS = [
   },
   { name: "join", usage: "join [job]", description: "work with a job's agent live on the Sprite" },
   { name: "watch", usage: "watch [job]", description: "follow a run live, read-only, or replay the last one" },
+  {
+    name: "cleanup",
+    usage: "cleanup [job] [options]",
+    description: "remove a pulled job's worktree and branch. Options: --discard, --remote",
+  },
 ] as const;
 const PULL_FLAGS = {
   "--here": "bring its context into this conversation",
@@ -99,7 +108,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("handoff", {
-    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | reply | pull | join | watch)",
+    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | reply | pull | join | watch | cleanup)",
     getArgumentCompletions: async (prefix) => {
       const text = prefix.trimStart();
       if (text.startsWith("status ")) {
@@ -144,6 +153,18 @@ export default function handoffLocal(pi: ExtensionAPI): void {
             description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
           }));
       }
+      if (text.startsWith("cleanup ")) {
+        const words = text.slice("cleanup ".length).split(/\s+/);
+        const typed = words.pop() ?? "";
+        const head = ["cleanup", ...words].join(" ");
+        const jobs = (await listJobs())
+          .filter(canCleanup)
+          .map((j) => ({ word: j.jobId, description: `${j.jobBranch ?? ""} · ${conversationName(j)}` }));
+        const flags = Object.entries(CLEANUP_FLAGS).map(([word, description]) => ({ word, description }));
+        return [...jobs, ...flags]
+          .filter(({ word }) => word.startsWith(typed) && !words.includes(word))
+          .map(({ word, description }) => ({ value: `${head} ${word}`, label: word, description }));
+      }
       if (text.startsWith("pull ")) {
         const words = text.slice("pull ".length).split(/\s+/);
         const typed = words.pop() ?? "";
@@ -173,6 +194,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         else if (subcommand === "reply") await replyCommand(ctx, runtime, trimmed.slice("reply".length).trim());
         else if (subcommand === "join") await joinCommand(ctx, runtime, rest);
         else if (subcommand === "watch") await watchCommand(ctx, runtime, rest);
+        else if (subcommand === "cleanup") await cleanupCommand(ctx, runtime, rest);
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         const message = (error as Error).message;
@@ -287,6 +309,9 @@ async function statusCommand(
         return;
       case "watch":
         await runWatch(ctx, runtime, job);
+        return;
+      case "cleanup":
+        await runCleanup(ctx, runtime, job, { discard: false, remote: false });
         return;
       case "show":
         pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
@@ -446,6 +471,63 @@ async function runWatch(ctx: ExtensionCommandContext, runtime: HandoffRuntime, j
   open.stream?.stop();
   await runtime.poll({ all: true }).catch(() => undefined);
   await runtime.refreshStatusLine();
+}
+
+const CLEANUP_FLAGS = {
+  "--discard": "remove even with uncommitted or unmerged work in it",
+  "--remote": "also delete the job branch on origin",
+} as const;
+
+/** /handoff cleanup [job] [--discard] [--remote]: remove a pulled job's worktree and branches on the laptop. */
+async function cleanupCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+  const flags = new Set(words.filter((w) => w.startsWith("--")));
+  const unknown = [...flags].filter((f) => !Object.hasOwn(CLEANUP_FLAGS, f));
+  if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(CLEANUP_FLAGS).join(", ")}`);
+  const ids = words.filter((w) => !w.startsWith("--"));
+  if (ids.length > 1) throw new Error("clean up one job at a time");
+
+  const job =
+    ids[0] === undefined
+      ? await pickJob(ctx, canCleanup, "Clean up which job?", "no pulled job with a branch to clean up; /handoff status pulled lists them")
+      : await readJob(ids[0]);
+  if (job === undefined) {
+    if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
+    return;
+  }
+  await runCleanup(ctx, runtime, job, { discard: flags.has("--discard"), remote: flags.has("--remote") });
+}
+
+/** Show what will go and ask, then remove it. Unmerged or uncommitted work is refused without --discard. */
+async function runCleanup(
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  job: LocalJob,
+  options: CleanupOptions,
+): Promise<void> {
+  if (job.cleanedAt !== undefined) throw new Error(`${job.jobId} is already cleaned up`);
+  const progress = progressTo(ctx, `Cleaning up ${job.jobId}`);
+  progress("looking at what is there…");
+  try {
+    const plan = await planCleanup(job, options);
+    // With a blocker, cleanupJob below refuses with the reasons: no question first.
+    if (ctx.hasUI && blockers(plan, options).length === 0) {
+      const items = describePlan(plan, options);
+      const risk = options.discard ? "\n\nUncommitted or unmerged work in them is lost." : "";
+      const hint = plan.worktree === undefined ? "" : "\nClose any pi session that is open in the worktree first.";
+      if (items.length > 0 && !(await ctx.ui.confirm(`Clean up ${job.jobId}?`, `Remove:\n- ${items.join("\n- ")}${hint}${risk}`))) return;
+    }
+    const { job: cleaned, removed } = await cleanupJob(job, options, progress, plan);
+    await writeJob(cleaned);
+    ctx.ui.notify(
+      removed.length === 0
+        ? `☁ Job ${job.jobId}: nothing was left to remove.`
+        : `☁ Cleaned up job ${job.jobId}: removed ${removed.join(", ")}. Its conversation is kept (/handoff status, /resume).`,
+      "info",
+    );
+    await runtime.refreshStatusLine();
+  } finally {
+    clearProgress(ctx);
+  }
 }
 
 /** Why /handoff join has no job to offer: say when one is still running. */
