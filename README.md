@@ -74,7 +74,7 @@ Then run `/handoff sync` in pi. It copies your pi setup to the Sprite (see Confi
 | Command | What it does |
 | --- | --- |
 | `/handoff [prompt]` | Hand this conversation off. Without a prompt, the agent is told to continue where you left off. |
-| `/handoff status [filter]` | Open the job browser. Filters: `all`, `running`, `needs-input`, `done`, `failed`, `aborted`, `pulled`. |
+| `/handoff status [filter]` | Open the job browser. Filters: `all`, `running`, `joined`, `needs-input`, `done`, `failed`, `aborted`, `pulled`. |
 | `/handoff reply [job] [text]` | Start another run of a finished job: answer its question or ask for more work. Without text, pi asks (a question with options shows them as a menu). |
 | `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]` | Bring a job back: its conversation becomes a local session, its branch is fetched, and the Sprite is cleaned up. |
 | `/handoff join [job] [--abort]` | Work with a job's agent live on the Sprite, without pulling: pi opens in a cmux split next to this pane (outside cmux, pi-handoff prints the command to run in any terminal). Close the pane whenever you like: the agent finishes its turn, pi quits once nobody is attached, and the usual card appears. `--abort` stops a headless run first; without it pi asks. |
@@ -108,7 +108,7 @@ The package also installs a skill and six tools, so you can say "I have to leave
 - **Status line**: `☁ 1 running · 1 needs input · 2 done`, counting every job not yet pulled.
 - **Outcome card**: when a run ends, a card in the open conversation with the agent's last message or its question, plus how to continue (`/handoff reply …`) or bring it back (`/handoff pull … --switch`). Cards are never sent to the model.
 - **cmux notification** to the pane that handed off (or replied), when run inside cmux.
-- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/N/D/F/X/P to jump to one, Enter for the job's actions (reply, join on the Sprite, show the full message, pull with its context into this conversation, pull and open, pull and stay, abort a run, open a pulled conversation or bring its context here), Esc to close. Joined jobs are listed with the running ones.
+- **Job browser** (`/handoff status`): ↑/↓ to move, Tab/Shift+Tab to cycle filters, Ctrl+A/R/O/N/D/F/X/P to jump to one (O is for joined), Enter for the job's actions (reply, join on the Sprite, show the full message, pull with its context into this conversation, pull and open, pull and stay, abort a run, open a pulled conversation or bring its context here), Esc to close. A joined job is counted apart from the running ones: `☁ 1 running · 1 joined`.
 
 ## Config
 

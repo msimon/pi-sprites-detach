@@ -8,6 +8,11 @@ test("filters follow the states; all leaves out pulled, running includes its fir
   assert.equal(matchesFilter(job("done"), "all"), true);
   assert.equal(matchesFilter(job("pulled"), "all"), false);
   for (const state of ["starting", "preparing", "running"] as const) assert.equal(matchesFilter(job(state), "running"), true);
+  // A joined job (someone is typing in it) is counted apart from the unattended runs.
+  assert.equal(matchesFilter(job("joined"), "running"), false);
+  assert.equal(matchesFilter(job("joined"), "joined"), true);
+  assert.equal(matchesFilter(job("joined"), "all"), true);
+  assert.equal(matchesFilter(job("running"), "joined"), false);
   assert.equal(matchesFilter(job("error"), "failed"), true);
   assert.equal(matchesFilter(job("needs_input"), "needs_input"), true);
   assert.equal(matchesFilter(job("done"), "needs_input"), false);

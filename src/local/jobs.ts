@@ -22,13 +22,17 @@ export type JobState =
 /** States in which a pi works on the job: polled, and reply and pull wait for them. */
 export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running", "joined"];
 
-/** Job browser filters, one per state (running groups its first seconds and joined jobs). */
-export const JOB_FILTERS = ["all", "running", "needs_input", "done", "failed", "aborted", "pulled"] as const;
+/** The states of a headless run, before it ends: what the `running` filter shows. */
+const RUNNING_STATES: readonly JobState[] = ["starting", "preparing", "running"];
+
+/** Job browser filters, one per state (running groups its first seconds). */
+export const JOB_FILTERS = ["all", "running", "joined", "needs_input", "done", "failed", "aborted", "pulled"] as const;
 export type JobFilter = (typeof JOB_FILTERS)[number];
 
 export const FILTER_LABELS: Record<JobFilter, string> = {
   all: "all",
   running: "running",
+  joined: "joined",
   needs_input: "needs input",
   done: "done",
   failed: "failed",
@@ -37,14 +41,14 @@ export const FILTER_LABELS: Record<JobFilter, string> = {
 };
 
 /** What the status line counts: jobs still running or waiting to be pulled. */
-export const STATUS_LINE_FILTERS: readonly JobFilter[] = ["running", "needs_input", "done", "failed"];
+export const STATUS_LINE_FILTERS: readonly JobFilter[] = ["running", "joined", "needs_input", "done", "failed"];
 
 export function matchesFilter(job: { state: JobState }, filter: JobFilter): boolean {
   switch (filter) {
     case "all":
       return job.state !== "pulled";
     case "running":
-      return ACTIVE_STATES.includes(job.state);
+      return RUNNING_STATES.includes(job.state);
     case "failed":
       return job.state === "error";
     default:

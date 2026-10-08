@@ -16,10 +16,14 @@ import {
 } from "./jobs.ts";
 import { outcomeBody, outcomeLabel } from "./outcome.ts";
 
-/** Ctrl+<letter> jumps to a filter; the same key again goes back to all. */
+/**
+ * Ctrl+<letter> jumps to a filter; the same key again goes back to all. Not Ctrl+J for
+ * joined: that is the newline character, which pi's key matcher also reads as Enter.
+ */
 const FILTER_KEYS: Record<JobFilter, string> = {
   all: "a",
   running: "r",
+  joined: "o",
   needs_input: "n",
   done: "d",
   failed: "f",

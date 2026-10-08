@@ -218,7 +218,7 @@ The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, r
 A full-screen view in the style of `/tree` and `/model` (`ctx.ui.custom`). It works from any pi window, since job records live in `~/.pi-handoff/jobs/`, not in a session.
 
 1. Opens at once on the local records and refreshes the active jobs from the Sprite in the background.
-2. Filters follow the job states: all (everything except pulled), running (starting, preparing, running), needs input, done, failed, aborted, pulled. A bar at the top shows them with their counts. Tab and Shift+Tab cycle through them; Ctrl+A/R/N/D/F/X/P jump to one, and the same key again goes back to all. `/handoff status <filter>` opens on that filter.
+2. Filters follow the job states: all (everything except pulled), running (starting, preparing, running: unattended), joined (someone is typing in it, counted apart in the status line too), needs input, done, failed, aborted, pulled. A bar at the top shows them with their counts. Tab and Shift+Tab cycle through them; Ctrl+A/R/O/N/D/F/X/P jump to one (O for joined: Ctrl+J is the newline character, which pi's key matcher also reads as Enter), and the same key again goes back to all. `/handoff status <filter>` opens on that filter.
 3. One line per job: id, state, conversation name, branch, age. Jobs waiting on the user (needs input, failed, done) come first, newest first.
 4. A preview under the list follows the cursor: state, conversation, branch, times and the first ~8 lines of the last message, question or error.
 5. Enter opens the job's actions, only those that fit its state and are built. A finished job (done, needs input, failed, aborted): Show full message (posts the outcome card in the chat), Reply (M3), Pull and open, Pull and stay here (M4). A running job: Abort (M4), which only stops the run (the job becomes `aborted`, to pull or reply to later), and Watch (v2). A pulled job: Open its conversation (M4). Esc goes back to the list; Esc in the list closes it.
@@ -293,7 +293,7 @@ Next, in this order of interest (decided 2026-10-08):
 
 - `/handoff watch`: overlay (`ctx.ui.custom`, like `/btw`) following `events.jsonl` over `sprite exec`; closing it stops the follow so the Sprite can sleep. Also the Watch action on running jobs in the job browser.
 - `/handoff cleanup [job]`: remove a job's local worktree and branch once merged or discarded; refuse if it has uncommitted changes.
-- Joined jobs counted apart from running ones: `☁ 1 joined` in the status line and a `joined` filter in the job browser.
+- (Done 2026-10-08: joined jobs counted apart from running ones, `☁ 1 running · 1 joined` and a `joined` filter, Ctrl+O in the browser. See Job browser.)
 
 Later:
 

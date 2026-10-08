@@ -2,7 +2,7 @@
 //
 //   /handoff [prompt]          hand the conversation off to the Sprite as a new job
 //   /handoff sync              bring the Sprite's pi setup in line with the laptop
-//   /handoff status [filter]   browse jobs (all, running, needs-input, done, failed, aborted, pulled)
+//   /handoff status [filter]   browse jobs (all, running, joined, needs-input, done, failed, aborted, pulled)
 //   /handoff reply [job] [text]
 //                              another run of a finished job: an answer, or more work
 //   /handoff pull [job] [--here] [--switch] [--abort] [--worktree]

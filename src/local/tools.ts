@@ -64,7 +64,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     parameters: Type.Object({
       job: Type.Optional(Type.String({ description: "A job id such as h3, to show in full" })),
       filter: Type.Optional(
-        Type.String({ description: "all (default; leaves out pulled jobs), running, needs-input, done, failed, aborted or pulled; ignored with job" }),
+        Type.String({ description: "all (default; leaves out pulled jobs), running, joined, needs-input, done, failed, aborted or pulled; ignored with job" }),
       ),
     }),
     executionMode: "sequential",
