@@ -7,9 +7,11 @@
 // - `remote.replace` swaps an entry (same matching) for another source or a file:
 //   `npm:…`/`git:…` lands in `packages`, a path (`~/…` or `/…`) in `extensions`.
 //   A replacement file must exist and be synced, or the sync stops with an error.
-// - Extension paths that are not synced are dropped: they would not exist there.
+// - Local paths in either list (an extension file, or a package that is a local
+//   folder) that are not synced are dropped: they would not exist there.
 // - Finally every laptop home path becomes the Sprite home path.
 
+import { join, resolve } from "node:path";
 import { HOME, SPRITE_HOME } from "./paths.ts";
 
 export interface RemoteRules {
@@ -35,7 +37,17 @@ export interface RewriteResult {
 type PackageEntry = string | { source: string; [key: string]: unknown };
 
 const sourceOf = (entry: PackageEntry): string => (typeof entry === "string" ? entry : entry.source);
+const withSource = (entry: PackageEntry, source: string): PackageEntry =>
+  typeof entry === "string" ? source : { ...entry, source };
 const isPath = (value: string): boolean => value.startsWith("/") || value.startsWith("~/");
+
+/** Absolute laptop path for a local source; relative ones resolve from the settings folder. */
+function localPath(source: string): string | undefined {
+  if (source.startsWith("/")) return source;
+  if (source.startsWith("~/")) return join(HOME, source.slice(2));
+  if (source.startsWith("./") || source.startsWith("../")) return resolve(HOME, ".pi/agent", source);
+  return undefined;
+}
 
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
@@ -84,15 +96,21 @@ export function rewriteSettings(
           changes.push(`replaced ${source} with ${replacement}`);
         }
       } else {
-        packages.push(typeof entry === "string" ? replacement : { ...entry, source: replacement });
+        packages.push(withSource(entry, replacement));
         changes.push(`replaced ${source} with ${replacement}`);
       }
       return;
     }
 
-    if (fromPackages) packages.push(entry);
-    else if (!source.startsWith("/") || context.isSynced(source)) addExtension(source);
-    else changes.push(`dropped ${source} (not under sync.paths)`);
+    // Local paths, in either list, must be synced: pi loads them in place and does not
+    // copy them (a package can be a local folder, `pi install ./dir`).
+    const local = localPath(source);
+    if (local !== undefined && !context.isSynced(local)) {
+      changes.push(`dropped ${source} (not under sync.paths)`);
+      return;
+    }
+    if (fromPackages) packages.push(local === undefined ? entry : withSource(entry, local));
+    else addExtension(local ?? source);
   };
 
   if (Array.isArray(settings.packages)) for (const entry of settings.packages as PackageEntry[]) place(entry, true);

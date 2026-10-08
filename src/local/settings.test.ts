@@ -35,6 +35,17 @@ test("a replacement file that is missing or not synced is an error", () => {
   assert.match(rewriteSettings(settings, rules, context([], [ask])).errors[0] ?? "", /not under sync.paths/);
 });
 
+test("a package that is an unsynced local folder is dropped, a synced one kept", () => {
+  const synced = `${HOME}/.pi/agent/extensions/my-pkg`;
+  const { settings, changes } = rewriteSettings(
+    { packages: ["npm:pi-lens", `${HOME}/programing/perso/pi-agent/pi-handoff`, "./extensions/my-pkg"] },
+    { exclude: [], replace: {} },
+    context([synced]),
+  );
+  assert.deepEqual(settings.packages, ["npm:pi-lens", `${SPRITE_HOME}/.pi/agent/extensions/my-pkg`]);
+  assert.match(changes[0] ?? "", /pi-handoff \(not under sync.paths\)/);
+});
+
 test("extensions: excluded and unsynced paths dropped, home paths mapped to the Sprite", () => {
   const synced = `${HOME}/.pi/agent/extensions/pi-usage/index.ts`;
   const { settings, changes } = rewriteSettings(
