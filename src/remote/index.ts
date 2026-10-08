@@ -32,9 +32,13 @@ export default function handoffRemote(pi: ExtensionAPI): void {
     event.systemPromptOptions.sections.handoff_briefing = buildBriefing(job, detectInstallCommand(job));
   });
 
+  // The end of the turn. handoff-run reads this, and if its runner died before pi
+  // exited, it is all there is to tell how the turn ended: hence `error`.
   pi.on("agent_end", (event) => {
     const text = lastAssistantText(event.messages);
-    writeFileSync(join(jobDir, "result.json"), `${JSON.stringify({ text: text.slice(0, RESULT_MAX_CHARS) })}\n`);
+    const error = turnError(event.messages);
+    const result = { text: text.slice(0, RESULT_MAX_CHARS), ...(error !== undefined ? { error } : {}) };
+    writeFileSync(join(jobDir, "result.json"), `${JSON.stringify(result)}\n`);
   });
 }
 
@@ -50,4 +54,15 @@ function lastAssistantText(messages: readonly unknown[]): string {
     if (text !== "") return text;
   }
   return "";
+}
+
+/** Why the turn ended early, if its last assistant message ended in an error or an abort. */
+function turnError(messages: readonly unknown[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as { role?: string; stopReason?: string; errorMessage?: string };
+    if (message.role !== "assistant") continue;
+    if (message.stopReason !== "error" && message.stopReason !== "aborted") return undefined;
+    return message.errorMessage ?? `the turn ended with ${message.stopReason}`;
+  }
+  return undefined;
 }

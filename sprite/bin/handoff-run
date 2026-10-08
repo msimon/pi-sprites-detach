@@ -212,7 +212,8 @@ else
     prompt=$(cat "$dir/prompt.txt")
   elif pi_finished; then
     echo "pi had finished before the runner died; recording the outcome"
-    rc=0
+    # pi's exit code is lost: the extension's result.json says if the turn failed.
+    rc=$(jq -r 'if .error then 1 else 0 end' "$dir/result.json" 2>/dev/null || echo 0)
   else
     interruption "the runner died while pi was working"
     prompt=$RESUME_PROMPT
@@ -255,7 +256,10 @@ question=null
 text=null
 [ -s "$dir/result.json" ] && text=$(jq '.text // null' "$dir/result.json")
 error=null
-[ "$state" = error ] && error=$(tail -n 5 "$dir/runner.log" | jq -Rs .)
+if [ "$state" = error ]; then
+  error=$(jq '.error // empty' "$dir/result.json" 2>/dev/null)
+  [ -n "$error" ] || error=$(tail -n 5 "$dir/runner.log" | jq -Rs .)
+fi
 
 set_status "$(jq -n --arg s "$state" --arg t "$(now)" --argjson rc "$rc" \
   --argjson q "$question" --argjson x "$text" --argjson e "$error" \
