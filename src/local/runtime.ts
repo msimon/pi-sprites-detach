@@ -54,10 +54,17 @@ export function mergeStatus(job: LocalJob, status: RemoteStatus): LocalJob | und
   return updated;
 }
 
-/** status.json of each job id given as an argument, `null` when absent. */
+/**
+ * status.json of each job id given as an argument, `null` when absent. A job still
+ * marked `joined` whose pi is gone (the Sprite restarted, or it was killed hard) is
+ * recorded `done` first (fix_stale_joined), so the poll posts its card.
+ */
 const READ_STATUS = `
+source "${REMOTE_HANDOFF_HOME}/bin/lib.sh"
 out='{}'
 for j in "$@"; do
+  # An older Sprite build (before the next sync) has no such function.
+  if type -t fix_stale_joined >/dev/null; then fix_stale_joined "$j"; fi
   s=$(cat "${REMOTE_STATE}/$j/status.json" 2>/dev/null || echo null)
   out=$(jq -c --arg j "$j" --argjson s "$s" '. + {($j): $s}' <<<"$out")
 done
