@@ -1,6 +1,6 @@
 # pi-handoff — plan
 
-Status: M0–M2 built and tested end to end on the Sprite (2026-10-08). M3–M5 to do.
+Status: M0–M4 built and tested end to end on the Sprite (2026-10-08). M5 to do.
 
 ## Goal
 
