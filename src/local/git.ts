@@ -42,10 +42,14 @@ export async function detectGit(folder: string): Promise<GitInfo | undefined> {
   // The configured URL, not `remote get-url`, which applies the laptop's insteadOf rules.
   const origin = await run("git", ["config", "--get", "remote.origin.url"], { cwd: repoRoot });
   if (origin.code !== 0) {
-    throw new Error(`${repoRoot} has no origin remote. pi-handoff needs one to move the work (see the plan's open questions).`);
+    throw new Error(
+      `${repoRoot} has no "origin" remote. pi-handoff moves the work through a branch pushed to origin, which the Sprite clones. Add one (git remote add origin <url>, for example a private GitHub repo) and run /handoff again.`,
+    );
   }
   const head = await run("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
-  if (head.code !== 0) throw new Error(`${repoRoot} has no commits yet.`);
+  if (head.code !== 0) {
+    throw new Error(`${repoRoot} has no commits yet. pi-handoff needs one to branch from: commit something and run /handoff again.`);
+  }
   const branch = await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: repoRoot });
 
   const originUrl = origin.stdout.trim();
