@@ -19,7 +19,7 @@ The conversation splits like `/clone`: the job continues on the Sprite with a co
 Install the package in pi, then start pi once. That writes `~/.pi-handoff/config.json` and builds `~/.pi-handoff/sprite/`, the folder that gets installed on the Sprite.
 
 ```sh
-pi install git:github.com/msimon/pi-handoff
+pi install git:git@github.com:msimon/pi-handoff
 ```
 
 Then paste this prompt into pi. It sets up the Sprite with only what pi-handoff needs, and asks before adding any optional tool:
