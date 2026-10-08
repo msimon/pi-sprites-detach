@@ -233,13 +233,14 @@ Works on any job whose run has ended (done, needs input, failed, aborted): to an
 - The outcome card gains `Continue there: /handoff reply <jobId> <text>`.
 - A prompt for `/handoff` cannot start with `sync`, `status`, `reply` or `pull`: those words are read as the subcommand.
 
-### Pull: `/handoff pull [job] [--abort] [--switch] [--worktree]`
+### Pull: `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]`
 
 1. On the Sprite (`handoff-pull`, one exec): if a run is in progress, refuse; with `--abort`, stop it first (`handoff-stop`: TERM to the runner's process group, KILL after 20 s; the runner marks the job `aborted`). Git protocol: commit whatever the agent left uncommitted in the job checkout (`git add -A`, `--no-verify`) and push the job branch (git protocol step 5). Returns the final status.
 2. Download the job session file (`sprite file pull`) into the local session directory of the original folder, as `<header timestamp>_<jobSessionId>.jsonl` like pi names its own, so it appears in `/resume` there. Set its header `cwd` to the original folder (or the new worktree with `--worktree`) and append the return briefing as a visible custom message (sent to the model, drawn as one line).
 3. Git protocol: fetch the job branch locally (`origin/<jobBranch>`); `--worktree` creates the local branch and a worktree for it (see Local worktrees).
 4. Clean up the Sprite (`handoff-clean`, decision 9) only once the session file is safely on the laptop, then mark the job `pulled` with the local session path.
 5. `--switch`: open the job session now (`switchSession`, a command-context operation). Otherwise the main session stays active; the job browser's Open its conversation opens it later, as does `/resume`.
+6. `--here` (built 2026-10-08): bring the job's context into the current conversation instead of opening the job's. After a normal pull (or on a job already pulled), the job's own entries (its active branch minus the entries it shares with the main session, whose ids the copy keeps, and minus the return briefing) are summarized with pi's branch summarizer (`generateBranchSummary`, the `/tree` one, with the session's current model; pi's "explored a different branch" preamble is stripped) and added with `pi.sendMessage` as a custom message the model reads, drawn as one line (`☁ Context from job …`, full text when expanded): the summary, the job's final message, `git log` and `git diff --stat` from the base commit to `origin/<jobBranch>`, and the path of the job's full conversation. Nothing is merged: the message tells the model the code stays on the job branch until the user asks for it. Job browser: Pull, bring its context into this conversation (finished jobs) and Bring its context into this conversation (pulled jobs). Tested on a copy of a real session with pulled job `h3`: the message was added, and the model answered correctly what the job did and that its code was on the job branch, not in the working directory.
 
 ### Join: `/handoff join [job]` (M6)
 

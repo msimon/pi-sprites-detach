@@ -13,11 +13,19 @@ import { conversationName, type JobState, type LocalJob } from "./jobs.ts";
 
 export const OUTCOME_ENTRY = "pi-handoff-outcome";
 export const RETURN_MESSAGE = "pi-handoff-return";
+/** A job's context brought into another conversation (/handoff pull --here). */
+export const CONTEXT_MESSAGE = "pi-handoff-context";
 
 export interface ReturnDetails {
   jobId: string;
   jobBranch?: string;
   worktree?: string;
+}
+
+export interface ContextDetails {
+  jobId: string;
+  jobBranch?: string;
+  sessionFile: string;
 }
 
 /** Lines of the message shown before it is cut, unless tool output is expanded. */
@@ -75,7 +83,7 @@ export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}
   if (job.jobBranch !== undefined) footer.push(`Branch ${job.jobBranch} on origin.`);
   if (job.state === "done" || job.state === "needs_input" || job.state === "error" || job.state === "aborted") {
     footer.push(`Continue there: /handoff reply ${job.jobId} <text>`);
-    footer.push(`Bring it back:  /handoff pull ${job.jobId} --switch`);
+    footer.push(`Bring it back:  /handoff pull ${job.jobId} --switch  (or --here: its context into this conversation)`);
   }
   return {
     jobId: job.jobId,
@@ -144,5 +152,18 @@ export function registerOutcomeRenderer(pi: ExtensionAPI): void {
     if (!expanded) return new Text(line, 1, 0);
     const text = typeof message.content === "string" ? message.content : "";
     return new Text(`${line}\n${theme.fg("dim", text)}`, 1, 0);
+  });
+  pi.registerMessageRenderer<ContextDetails>(CONTEXT_MESSAGE, (message, { expanded }, theme) => {
+    const d = message.details;
+    const branch = d?.jobBranch === undefined ? "" : ` · origin/${d.jobBranch}`;
+    const hint = expanded ? "" : ` · ${keyText("app.tools.expand")} to read`;
+    const line = `${theme.fg("accent", `☁ Context from job ${d?.jobId ?? "?"}`)}${theme.fg("muted", `${branch}${hint}`)}`;
+    if (!expanded) return new Text(line, 1, 0);
+    const text = typeof message.content === "string" ? message.content : "";
+    const box = new Box(1, 0);
+    box.addChild(new Text(line, 0, 0));
+    box.addChild(new Spacer(1));
+    box.addChild(new Markdown(text, 0, 0, getMarkdownTheme(), { color: (t) => theme.fg("toolOutput", t) }));
+    return box;
   });
 }

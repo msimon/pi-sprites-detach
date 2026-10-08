@@ -5,8 +5,9 @@
 //   /handoff status [filter]   browse jobs (all, running, needs-input, done, failed, aborted, pulled)
 //   /handoff reply [job] [text]
 //                              another run of a finished job: an answer, or more work
-//   /handoff pull [job] [--abort] [--switch] [--worktree]
-//                              bring a job's conversation and work back
+//   /handoff pull [job] [--here] [--switch] [--abort] [--worktree]
+//                              bring a job's conversation and work back; --here also
+//                              brings its context into this conversation
 //
 // A prompt for /handoff cannot start with one of these words; they are read as the
 // subcommand.
@@ -34,6 +35,7 @@ import {
   parseFilter,
   readJob,
 } from "./jobs.ts";
+import { bringContextHere } from "./here.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
 import { CONFIG_FILE } from "./paths.ts";
 import { type PullOptions, pullJob, StillRunningError, stopJob } from "./pull.ts";
@@ -49,11 +51,16 @@ const SUBCOMMANDS = [
   { name: "status", usage: "status [filter]", description: "browse jobs by state, pull or abort them" },
   { name: "reply", usage: "reply [job] [text]", description: "answer a finished job, or ask it for more work" },
   // pi's menu cuts the label at ~30 characters, so the options go in the description.
-  { name: "pull", usage: "pull [job] [options]", description: "bring a job back. Options: --abort, --switch, --worktree" },
+  {
+    name: "pull",
+    usage: "pull [job] [options]",
+    description: "bring a job back. Options: --here, --switch, --abort, --worktree",
+  },
 ] as const;
 const PULL_FLAGS = {
-  "--abort": "stop a run in progress first",
+  "--here": "bring its context into this conversation",
   "--switch": "open its conversation after pulling",
+  "--abort": "stop a run in progress first",
   "--worktree": "check the job branch out in a local worktree",
 } as const;
 /** Filters as typed after `status` (dashes instead of underscores). */
@@ -130,7 +137,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
       try {
         if (trimmed === "sync") await syncCommand(ctx);
         else if (subcommand === "status") await statusCommand(pi, ctx, runtime, rest.join(" "));
-        else if (subcommand === "pull") await pullCommand(ctx, runtime, rest);
+        else if (subcommand === "pull") await pullCommand(pi, ctx, runtime, rest);
         else if (subcommand === "reply") await replyCommand(ctx, runtime, trimmed.slice("reply".length).trim());
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
@@ -244,9 +251,18 @@ async function statusCommand(
       case "show":
         pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
         return;
+      case "pullHere":
       case "pullOpen":
       case "pull":
-        await runPull(ctx, runtime, job, { abort: false, worktree: false, switchTo: action === "pullOpen" });
+        await runPull(pi, ctx, runtime, job, {
+          abort: false,
+          worktree: false,
+          switchTo: action === "pullOpen",
+          here: action === "pullHere",
+        });
+        return;
+      case "here":
+        await runContextHere(pi, ctx, job);
         return;
       case "abort": {
         const ok = await ctx.ui.confirm(
@@ -271,13 +287,20 @@ async function statusCommand(
   }
 }
 
-/** /handoff pull [job] [--abort] [--switch] [--worktree] */
-async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+/** /handoff pull [job] [--abort] [--switch] [--worktree] [--here] */
+async function pullCommand(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  words: string[],
+): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
   const unknown = [...flags].filter((f) => !Object.hasOwn(PULL_FLAGS, f));
   if (unknown.length > 0) {
     throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(PULL_FLAGS).join(", ")}`);
   }
+  const here = flags.has("--here");
+  if (here && flags.has("--switch")) throw new Error("--here keeps this conversation; it does not go with --switch");
   const ids = words.filter((w) => !w.startsWith("--"));
   if (ids.length > 1) throw new Error("pull one job at a time");
 
@@ -289,12 +312,16 @@ async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
     return;
   }
-  if (job.state === "pulled") throw new Error(`${job.jobId} is already pulled; open it with /handoff status`);
+  if (job.state === "pulled") {
+    if (here) return runContextHere(pi, ctx, job);
+    throw new Error(`${job.jobId} is already pulled; open it with /handoff status, or bring its context here with --here`);
+  }
 
-  await runPull(ctx, runtime, job, {
+  await runPull(pi, ctx, runtime, job, {
     abort: flags.has("--abort"),
     worktree: flags.has("--worktree"),
     switchTo: flags.has("--switch"),
+    here,
   });
 }
 
@@ -378,12 +405,14 @@ function workLine(job: LocalJob): string {
 }
 
 async function runPull(
+  pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   runtime: HandoffRuntime,
   job: LocalJob,
-  options: PullOptions & { switchTo: boolean },
+  options: PullOptions & { switchTo: boolean; here: boolean },
 ): Promise<void> {
-  const result = await pullJob(job, options, progressTo(ctx, `Pulling ${job.jobId}`));
+  const progress = progressTo(ctx, `Pulling ${job.jobId}`);
+  const result = await pullJob(job, options, progress);
   const pulled = result.job;
   const lines = [
     `☁ Pulled job ${job.jobId}: ${conversationName(job)}`,
@@ -396,6 +425,7 @@ async function runPull(
       ? "Removed from the Sprite."
       : `Could not clean up the Sprite (${result.cleanupError}); it will be retried in the background.`,
   ];
+  if (options.here) lines.push(await contextHereLine(pi, ctx, pulled, progress));
   await runtime.refreshStatusLine();
   clearProgress(ctx);
   if (!options.switchTo) {
@@ -405,6 +435,28 @@ async function runPull(
   await ctx.switchSession(result.sessionFile, {
     withSession: async (fresh) => fresh.ui.notify(lines.join("\n"), "info"),
   });
+}
+
+/** Bring a pulled job's context into this conversation; the line to report, success or not. */
+async function contextHereLine(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  job: LocalJob,
+  progress: (text: string) => void,
+): Promise<string> {
+  try {
+    await bringContextHere(pi, ctx, job, progress);
+    return `Its context is in this conversation now (the ☁ Context from job ${job.jobId} line; expand it to read).`;
+  } catch (error: unknown) {
+    return `Could not bring its context here: ${(error as Error).message}. Try again with /handoff pull ${job.jobId} --here.`;
+  }
+}
+
+/** --here on a job already pulled: only its context. */
+async function runContextHere(pi: ExtensionAPI, ctx: ExtensionCommandContext, job: LocalJob): Promise<void> {
+  const line = await contextHereLine(pi, ctx, job, progressTo(ctx, `Bringing ${job.jobId} here`));
+  clearProgress(ctx);
+  ctx.ui.notify(`☁ Job ${job.jobId}: ${conversationName(job)}\n${line}`, line.startsWith("Could not") ? "error" : "info");
 }
 
 /** Open the browser on the local records; on the first open, refresh them from the Sprite meanwhile. */
