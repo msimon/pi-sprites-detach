@@ -59,6 +59,7 @@ fix_stale_joined() {
   json_merge "$dir/status.json" "$(jq -n --arg t "$(now)" --argjson x "${text:-null}" \
     '{state:"done", runEndedAt:$t, lastAssistantText:$x, error:null, question:null}')"
   rm -f "$dir/runner.pid"
+  echo "== $(now) the joined pi had ended without recording it; recorded done" >>"$dir/runner.log"
 }
 
 # job_pids <jobId>: this user's processes started for the job (pi and its tools), found
