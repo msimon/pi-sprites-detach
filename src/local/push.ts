@@ -7,7 +7,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { RemoteJob } from "../remote/job.ts";
 import { loadConfig, projectFilePatterns } from "./config.ts";
 import { emitJson, runOk, spriteJson } from "./exec.ts";
-import { detectGit, ignoredProjectFiles, nextJobBranch, pushJobBranch, snapshotCommit } from "./git.ts";
+import { detectGit, ignoredProjectFiles, pushNewJobBranch, snapshotCommit } from "./git.ts";
 import { type LocalJob, reserveJobId, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE, SPRITE_HOME } from "./paths.ts";
 import { cloneForJob } from "./session.ts";
@@ -79,8 +79,7 @@ export async function pushJob(
     if (git !== undefined) {
       progress("pushing the job branch…");
       const { sha, snapshot } = await snapshotCommit(git);
-      const jobBranch = await nextJobBranch(git);
-      await pushJobBranch(git, sha, jobBranch);
+      const jobBranch = await pushNewJobBranch(git, sha);
 
       const patterns = await projectFilePatterns(git.repoRoot, config);
       const extra = await ignoredProjectFiles(git, patterns);

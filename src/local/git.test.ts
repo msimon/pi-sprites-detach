@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { parseOrigin, projectPathspecs } from "./git.ts";
+import { parseOrigin, projectPathspecs, pushNewJobBranch } from "./git.ts";
+
+test("pushNewJobBranch: concurrent pushes of the same commit get different branches", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-handoff-git-test-"));
+  try {
+    const g = (cwd: string, ...args: string[]) =>
+      execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const origin = join(root, "origin.git");
+    const work = join(root, "work");
+    g(root, "init", "-q", "--bare", origin);
+    g(root, "init", "-q", "-b", "main", work);
+    g(work, "remote", "add", "origin", origin);
+    writeFileSync(join(work, "a.txt"), "a\n");
+    g(work, "add", "a.txt");
+    g(work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a");
+    const head = g(work, "rev-parse", "HEAD");
+    const info = { repoRoot: work, branch: "main", head, originUrl: origin, cloneUrl: origin, repoKey: "t/work" };
+
+    const branches = await Promise.all([1, 2, 3].map(() => pushNewJobBranch(info, info.head)));
+    assert.deepEqual([...branches].sort(), ["main-handoff-1", "main-handoff-2", "main-handoff-3"]);
+    assert.equal(await pushNewJobBranch(info, info.head), "main-handoff-4");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("parseOrigin: GitHub SSH and HTTPS become an HTTPS clone URL", () => {
   for (const url of [

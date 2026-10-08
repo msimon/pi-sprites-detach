@@ -93,10 +93,8 @@ export async function snapshotCommit(info: GitInfo): Promise<{ sha: string; snap
   }
 }
 
-/** `<base>-handoff-<n>` with the next n not taken on origin. */
-export async function nextJobBranch(info: GitInfo): Promise<string> {
-  const base = info.branch ?? `detached-${info.head.slice(0, 7)}`;
-  const prefix = `${base}-handoff-`;
+/** The highest n of the `<base>-handoff-<n>` branches on origin, 0 when none. */
+async function highestJobBranch(info: GitInfo, prefix: string): Promise<number> {
   const out = await git(info.repoRoot, ["ls-remote", "--heads", "origin", `refs/heads/${prefix}*`]);
   let max = 0;
   for (const line of out.split("\n")) {
@@ -105,15 +103,33 @@ export async function nextJobBranch(info: GitInfo): Promise<string> {
     const n = Number(ref.slice(`refs/heads/${prefix}`.length));
     if (Number.isInteger(n) && n > max) max = n;
   }
-  return `${prefix}${max + 1}`;
+  return max;
 }
 
 /**
- * Push a commit straight to a new branch on origin; no local branch is created.
+ * Push a commit to a new branch on origin, `<base>-handoff-<n>` with the next free n,
+ * and return its name; no local branch is created. The lease with an empty value
+ * makes the push fail if the branch exists, so two windows handing off from the same
+ * repo at the same moment cannot share one: the loser tries the next n.
  * --no-verify: a snapshot of work in progress would trip pre-push checks.
  */
-export async function pushJobBranch(info: GitInfo, sha: string, branch: string): Promise<void> {
-  await git(info.repoRoot, ["push", "--no-verify", "origin", `${sha}:refs/heads/${branch}`]);
+export async function pushNewJobBranch(info: GitInfo, sha: string, attempts = 5): Promise<string> {
+  const base = info.branch ?? `detached-${info.head.slice(0, 7)}`;
+  const prefix = `${base}-handoff-`;
+  let n = (await highestJobBranch(info, prefix)) + 1;
+  for (let attempt = 1; ; attempt++) {
+    const branch = `${prefix}${n}`;
+    const ref = `refs/heads/${branch}`;
+    const result = await run("git", ["push", "--no-verify", `--force-with-lease=${ref}:`, "origin", `${sha}:${ref}`], {
+      cwd: info.repoRoot,
+    });
+    if (result.code === 0) return branch;
+    const taken = /stale info|already exists|\[rejected\]/.test(result.stderr);
+    if (!taken || attempt >= attempts) {
+      throw new Error(`git push of the job branch ${branch} failed: ${result.stderr.trim()}`);
+    }
+    n = Math.max(n + 1, (await highestJobBranch(info, prefix)) + 1);
+  }
 }
 
 /** Pathspecs for `copyProjectFiles` patterns, gitignore-style. */
