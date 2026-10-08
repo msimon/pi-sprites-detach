@@ -120,7 +120,8 @@ export async function listJobs(): Promise<LocalJob[]> {
   for (const name of names) {
     if (!/^h\d+\.json$/.test(name)) continue;
     const job = await readJob(name.slice(0, -5));
-    if (job !== undefined) jobs.push(job);
+    // A reserved id is `{}` until its handoff finishes pushing (reserveJobId): skip it.
+    if (job !== undefined && typeof job.jobId === "string" && typeof job.state === "string") jobs.push(job);
   }
   return jobs.sort((a, b) => Number(a.jobId.slice(1)) - Number(b.jobId.slice(1)));
 }

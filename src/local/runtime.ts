@@ -102,7 +102,9 @@ export class HandoffRuntime {
   async start(ctx: ExtensionContext): Promise<void> {
     this.#ctx = ctx;
     await this.poll({ all: true });
-    this.#timer ??= setInterval(() => void this.poll({ all: false }), POLL_MS);
+    // A failed tick must never reach the event loop as an unhandled rejection: that
+    // takes the whole pi process down. The next tick tries again.
+    this.#timer ??= setInterval(() => void this.poll({ all: false }).catch(() => {}), POLL_MS);
     this.#timer.unref?.();
   }
 
