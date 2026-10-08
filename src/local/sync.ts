@@ -142,11 +142,18 @@ ${emitJson("{handoffHash:$h, applied:$a, state:$s, tools:$t}", `--arg h "$handof
  * `incoming/` only once complete, so a failed upload never leaves stale files.
  * pi-handoff's own files are installed right away (they are small and the apply
  * script comes from them); the rest is applied detached.
+ *
+ * Windows syncing at the same moment take turns (flock). One that finds an apply
+ * already running drops its upload and waits for that one: the laptop's config is
+ * the same in every window.
  */
 const START_APPLY = `
 set -e
 S=${REMOTE_STATE}/sync
 up=$1
+mkdir -p "$S"
+exec 9>"$S/start.lock"
+flock 9
 if [ -f "$up/handoff.tgz" ]; then
   rm -rf ${REMOTE_HANDOFF_HOME}.next && mkdir -p ${REMOTE_HANDOFF_HOME}.next
   tar -xzf "$up/handoff.tgz" -C ${REMOTE_HANDOFF_HOME}.next
@@ -154,13 +161,16 @@ if [ -f "$up/handoff.tgz" ]; then
   rm "$up/handoff.tgz"
 fi
 started=false
-if [ -n "$(ls -A "$up")" ]; then
-  rm -rf "$S/incoming" && mv "$up" "$S/incoming"
-  jq -n '{state:"applying", step:"starting"}' >"$S/state.json"
-  setsid nohup ${REMOTE_HANDOFF_HOME}/bin/handoff-sync-apply >/dev/null 2>&1 </dev/null &
+if [ -z "$(ls -A "$up")" ]; then
+  rm -rf "$up"
+elif [ "$(jq -r '.state // empty' "$S/state.json" 2>/dev/null)" = applying ]; then
+  rm -rf "$up"
   started=true
 else
-  rm -rf "$up"
+  rm -rf "$S/incoming" && mv "$up" "$S/incoming"
+  jq -n '{state:"applying", step:"starting"}' >"$S/state.json"
+  setsid nohup ${REMOTE_HANDOFF_HOME}/bin/handoff-sync-apply >/dev/null 2>&1 </dev/null 9>&- &
+  started=true
 fi
 ${emitJson("{started:$st}", `--argjson st "$started"`)}
 `;
