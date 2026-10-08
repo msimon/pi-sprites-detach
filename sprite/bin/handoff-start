@@ -1,0 +1,14 @@
+#!/bin/bash
+# handoff-start <jobId>: start a run of the job as the Sprite service handoff-<jobId>.
+#
+# The runtime owns the process: it outlives the exec that started it, and the runtime
+# starts it again if the Sprite environment restarts or the runner is killed. The run
+# deletes the service when it ends (handoff-run), as does an abort (handoff-stop).
+# Callers check first that no run is in progress (runner_alive).
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-start <jobId>}
+service_delete "$job"   # a definition left behind by an earlier run
+"$SPRITE_ENV" services create "handoff-$job" --cmd "$HANDOFF_HOME/bin/handoff-run" --args "$job" --no-stream >/dev/null

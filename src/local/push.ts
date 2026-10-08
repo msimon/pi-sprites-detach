@@ -16,8 +16,9 @@ import { syncSprite } from "./sync.ts";
 export const DEFAULT_PROMPT = "Continue where we left off.";
 
 /**
- * Move the uploaded files into the job's state dir and start handoff-run detached,
- * so this exec returns at once. Refuses if the job dir already exists on the Sprite.
+ * Move the uploaded files into the job's state dir and start the run as a Sprite
+ * service (handoff-start), so this exec returns at once and the run survives a
+ * restart of the Sprite environment. Refuses if the job dir already exists.
  */
 const START_JOB = `
 set -e
@@ -29,8 +30,8 @@ if [ -e "$dir" ]; then
   exit 1
 fi
 mv "$up" "$dir"
-setsid nohup ${REMOTE_HANDOFF_HOME}/bin/handoff-run "$job" >/dev/null 2>&1 </dev/null &
-${emitJson("{pid:$p}", `--argjson p "$!"`)}
+${REMOTE_HANDOFF_HOME}/bin/handoff-start "$job"
+${emitJson("{started:true}")}
 `;
 
 export interface PushResult {
@@ -133,7 +134,7 @@ export async function pushJob(
       [join(tmp, "job.json"), `${upload}/job.json`],
       [join(tmp, "prompt.txt"), `${upload}/prompt.txt`],
     );
-    await spriteJson<{ pid: number }>(sprite, START_JOB, [upload, jobId], { files, timeoutMs: 600_000 });
+    await spriteJson<{ started: boolean }>(sprite, START_JOB, [upload, jobId], { files, timeoutMs: 600_000 });
 
     const job: LocalJob = {
       jobId,

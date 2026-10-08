@@ -14,11 +14,33 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # emit <json>: the one result line the laptop reads (src/local/exec.ts JSON_MARKER).
 emit() { printf '%s%s\n' '@@handoff ' "$1"; }
 
-# runner_alive <jobId>: whether the job's handoff-run is still going.
+# Pid files hold "<pid> <start time>". Pids start again from low numbers when the
+# Sprite environment restarts, so a bare pid could name an unrelated process.
+proc_start() {
+  local s
+  s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  s=${s##*) }   # drop "<pid> (<comm>) ": the start time is then field 20
+  # shellcheck disable=SC2086
+  set -- $s
+  echo "${20}"
+}
+pid_record() { echo "$1 $(proc_start "$1")" >"$2"; }
+pid_alive() {
+  local pid start
+  read -r pid start <"$1" 2>/dev/null || return 1
+  [ -n "$pid" ] && [ -n "$start" ] && [ "$(proc_start "$pid")" = "$start" ]
+}
+pid_of() { cut -d' ' -f1 "$1" 2>/dev/null; }
+
+# Each run is the Sprite service handoff-<jobId> while it lasts (handoff-start), so the
+# runtime starts it again after an environment restart or a killed runner.
+service_registered() { "$SPRITE_ENV" services get "handoff-$1" >/dev/null 2>&1; }
+service_delete() { "$SPRITE_ENV" services delete "handoff-$1" >/dev/null 2>&1 || true; }
+
+# runner_alive <jobId>: whether the job's run is in progress: its handoff-run is alive,
+# or its service is still registered (the runtime is about to start it again).
 runner_alive() {
-  local pid
-  pid=$(cat "$HANDOFF_STATE/$1/runner.pid" 2>/dev/null) || return 1
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+  pid_alive "$HANDOFF_STATE/$1/runner.pid" || service_registered "$1"
 }
 
 # job_pids <jobId>: this user's processes started for the job (pi and its tools), found

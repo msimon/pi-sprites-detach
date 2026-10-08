@@ -1,11 +1,19 @@
 #!/bin/bash
-# handoff-run <jobId>: one run of a handed-off job.
+# handoff-run <jobId>: one run of a handed-off job, as the Sprite service handoff-<jobId>.
 #
 # Prepares the job's checkout on the first run, then runs pi headless on the job's
 # session file inside a mount namespace that shows the checkout at the laptop path,
 # under a Tasks API hold. The outcome lands in ~/.handoff/<jobId>/status.json, which
-# the laptop polls. Started detached (setsid nohup) by the laptop, never inside one
+# the laptop polls. Started by handoff-start as a Sprite service, never inside one
 # sprite exec: a dropped exec session would kill it.
+#
+# Recovery: the service stays registered for the whole run, so if the Sprite
+# environment restarts or the runner is killed, the runtime starts this script again.
+# It finds the status still `preparing` or `running` and resumes: preparation starts
+# over, pi continues the conversation with RESUME_PROMPT. pi killed by a signal while
+# this script lives is resumed the same way. MAX_INTERRUPTIONS per run, then `error`.
+# Every intended ending deletes the service: the end of the run here, an abort in
+# handoff-stop (which leaves a `stop` marker first).
 #
 # Inputs in ~/.handoff/<jobId>/: job.json (written by the laptop), session.jsonl,
 # prompt.txt, and files.tgz (copyProjectFiles, optional).
@@ -17,16 +25,23 @@ job=${1:?usage: handoff-run <jobId>}
 dir=$HANDOFF_STATE/$job
 job_json=$dir/job.json
 status=$dir/status.json
-[ -f "$job_json" ] || { echo "handoff-run: no job $job" >&2; exit 2; }
+if [ ! -f "$job_json" ]; then
+  echo "handoff-run: no job $job" >&2
+  service_delete "$job"
+  exit 2
+fi
+
+MAX_INTERRUPTIONS=2
+RESUME_PROMPT="Your previous run was interrupted before it finished (the Sprite restarted or the process was killed). Check the current state of the work (git status, the files you were changing, tests) and continue the task from where it stopped."
 
 exec >>"$dir/runner.log" 2>&1
 echo "== $(now) handoff-run $job (pid $$)"
 
-if [ -s "$dir/runner.pid" ] && kill -0 "$(cat "$dir/runner.pid")" 2>/dev/null; then
-  echo "already running as pid $(cat "$dir/runner.pid")"
-  exit 3
-fi
-echo $$ >"$dir/runner.pid"
+while pid_alive "$dir/runner.pid"; do
+  echo "another runner is alive (pid $(pid_of "$dir/runner.pid")); waiting"
+  sleep 5
+done
+pid_record $$ "$dir/runner.pid"
 
 get() { jq -r "$1 // empty" "$job_json"; }
 protocol=$(get .protocol)
@@ -36,6 +51,7 @@ checkout=$(get .checkout)
 repo_key=$(get .repoKey)
 
 set_status() { json_merge "$status" "$1"; }
+status_field() { jq -r "$1 // empty" "$status" 2>/dev/null; }
 
 fail() {
   echo "error: $1"
@@ -43,9 +59,24 @@ fail() {
   exit 1
 }
 
+# A TERM with the stop marker is an abort (handoff-stop). Any other TERM (the Sprite
+# environment going down) leaves the status and the service alone, so the runtime
+# starts this script again and the run resumes.
+on_term() {
+  if [ -e "$dir/stop" ]; then aborted=1; else interrupted=1; fi
+  exit 143
+}
+
 on_exit() {
   local rc=$? state
-  state=$(jq -r '.state // empty' "$status" 2>/dev/null)
+  trap - EXIT TERM INT HUP
+  rm -f "$dir/runner.pid"
+  hold_stop
+  if [ -n "${interrupted:-}" ]; then
+    echo "== $(now) interrupted by a signal; the service will resume the run"
+    return
+  fi
+  state=$(status_field .state)
   if [ "$state" = preparing ] || [ "$state" = running ]; then
     if [ -n "${aborted:-}" ]; then
       set_status "$(jq -n --arg t "$(now)" '{state:"aborted", runEndedAt:$t}')"
@@ -53,17 +84,29 @@ on_exit() {
       set_status "$(jq -n --arg t "$(now)" --arg e "runner exited unexpectedly ($rc)" '{state:"error", error:$e, runEndedAt:$t}')"
     fi
   fi
-  rm -f "$dir/runner.pid"
-  hold_stop
+  # Last: deleting the service stops this process. Detached, so the request is made
+  # even if the runtime signals this process group first.
+  setsid "$SPRITE_ENV" services delete "handoff-$job" >/dev/null 2>&1 </dev/null &
 }
+
+# What kind of start this is: a new run (no status yet, or `starting` from
+# handoff-reply), a resumed one (the previous runner died mid-run), or a stray restart
+# after the run had already ended.
+prev=$(status_field .state)
+case $prev in
+  "" | starting) mode=new ;;
+  preparing | running) mode=resume ;;
+  *)
+    echo "the run already ended ($prev); removing the service"
+    rm -f "$dir/runner.pid"
+    service_delete "$job"
+    exit 0
+    ;;
+esac
 
 hold_start "handoff-$job"
 trap on_exit EXIT
-trap 'aborted=1; exit 143' TERM INT HUP
-
-rm -f "$dir/question.json" "$dir/result.json"
-set_status "$(jq -n --arg j "$job" --arg t "$(now)" \
-  '{jobId:$j, state:"preparing", runStartedAt:$t, runEndedAt:null, exitCode:null, error:null, question:null, lastAssistantText:null}')"
+trap on_term TERM INT HUP
 
 # npm has no shared store, so each repo keeps a copy of node_modules per lockfile hash.
 npm_cache_dir() {
@@ -118,26 +161,84 @@ prepare() {
   npm_cache_restore
 }
 
-[ -d "$checkout" ] || prepare
-[ -s "$dir/prompt.txt" ] || fail "no prompt.txt"
-
-set_status '{"state":"running"}'
-echo "== $(now) pi start"
-
 # Root only to create the namespace and the bind mount; pi itself runs as this user.
 # The inner script: mount the checkout at the laptop path, cd to the laptop folder,
 # then drop back to this user. sudo resets the environment, so pass it explicitly.
-inner='mkdir -p "$1" && mount --bind "$2" "$1" && cd "$3" && u=$4 g=$5 && shift 5 &&
-  exec setpriv --reuid="$u" --regid="$g" --init-groups "$@"'
-sudo unshare --mount --propagation private -- bash -c "$inner" handoff \
-  "$mount_at" "$checkout" "$folder" "$(id -u)" "$(id -g)" \
-  env HOME="$HOME" USER="$(id -un)" PATH="$PATH" LANG="$LANG" LC_ALL="$LC_ALL" \
-  HANDOFF_JOB_ID="$job" HANDOFF_DIR="$dir" \
-  pi -p --mode json --session "$dir/session.jsonl" -e "$HANDOFF_HOME/extension/index.ts" \
-  "$(cat "$dir/prompt.txt")" \
-  >>"$dir/events.jsonl"
-rc=$?
-echo "== $(now) pi exit $rc"
+run_pi() {
+  local inner='mkdir -p "$1" && mount --bind "$2" "$1" && cd "$3" && u=$4 g=$5 && shift 5 &&
+    exec setpriv --reuid="$u" --regid="$g" --init-groups "$@"'
+  sudo unshare --mount --propagation private -- bash -c "$inner" handoff \
+    "$mount_at" "$checkout" "$folder" "$(id -u)" "$(id -g)" \
+    env HOME="$HOME" USER="$(id -un)" PATH="$PATH" LANG="$LANG" LC_ALL="$LC_ALL" \
+    HANDOFF_JOB_ID="$job" HANDOFF_DIR="$dir" \
+    pi -p --mode json --session "$dir/session.jsonl" -e "$HANDOFF_HOME/extension/index.ts" \
+    "$1" \
+    >>"$dir/events.jsonl"
+}
+
+# pi got to the end of its turn: it left an answer or a question.
+pi_finished() { [ -s "$dir/question.json" ] || [ -s "$dir/result.json" ]; }
+
+# Count an interruption; past the limit the run ends in `error`.
+interruption() {
+  local n
+  n=$(($(status_field .interruptions || echo 0) + 1))
+  set_status "$(jq -n --argjson n "$n" '{interruptions:$n}')"
+  echo "== $(now) interruption $n: $1"
+  [ "$n" -le "$MAX_INTERRUPTIONS" ] || fail "the run was interrupted $n times ($1); reply to try again"
+}
+
+rc=
+if [ "$mode" = new ]; then
+  rm -f "$dir/question.json" "$dir/result.json" "$dir/stop"
+  set_status "$(jq -n --arg j "$job" --arg t "$(now)" \
+    '{jobId:$j, state:"starting", runStartedAt:$t, runEndedAt:null, exitCode:null, error:null, question:null, lastAssistantText:null, interruptions:0}')"
+  [ -s "$dir/prompt.txt" ] || fail "no prompt.txt"
+  prompt=$(cat "$dir/prompt.txt")
+else
+  # An abort whose runner never got to record it.
+  [ -e "$dir/stop" ] && { aborted=1; exit 143; }
+  # pi from the runner that died may still be going: let it finish first.
+  while [ -n "$(job_pids "$job")" ]; do
+    echo "pi from the previous runner is still going; waiting"
+    sleep 5
+  done
+  if [ "$prev" = preparing ]; then
+    interruption "while preparing the checkout"
+    echo "starting the preparation over"
+    [ "$protocol" = git ] && git -C "$HOME/repos/$repo_key" worktree remove --force "$checkout" 2>/dev/null
+    rm -rf "$checkout"
+    [ "$protocol" = git ] && git -C "$HOME/repos/$repo_key" worktree prune
+    prompt=$(cat "$dir/prompt.txt")
+  elif pi_finished; then
+    echo "pi had finished before the runner died; recording the outcome"
+    rc=0
+  else
+    interruption "the runner died while pi was working"
+    prompt=$RESUME_PROMPT
+  fi
+fi
+
+# Preparing only when the checkout is missing (the first run): a resume of `preparing`
+# can then start over without touching anything the agent wrote.
+if [ ! -d "$checkout" ]; then
+  set_status '{"state":"preparing"}'
+  prepare
+fi
+
+while [ -z "$rc" ]; do
+  set_status '{"state":"running"}'
+  echo "== $(now) pi start"
+  run_pi "$prompt"
+  rc=$?
+  echo "== $(now) pi exit $rc"
+  # Killed by a signal nobody here sent (no stop marker), before the end of its turn.
+  if [ "$rc" -ge 128 ] && [ ! -e "$dir/stop" ] && ! pi_finished; then
+    interruption "pi was killed (exit $rc)"
+    prompt=$RESUME_PROMPT
+    rc=
+  fi
+done
 
 npm_cache_save
 

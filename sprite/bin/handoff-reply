@@ -25,5 +25,7 @@ if runner_alive "$job"; then
 fi
 
 mv "$prompt" "$dir/prompt.txt" || exit 1
-setsid nohup "$HANDOFF_HOME/bin/handoff-run" "$job" >/dev/null 2>&1 </dev/null &
-emit "$(jq -nc --argjson p "$!" '{started:true, pid:$p}')"
+# `starting` tells handoff-run this is a new run, not one to resume.
+json_merge "$dir/status.json" '{"state":"starting"}'
+"$HANDOFF_HOME/bin/handoff-start" "$job" || exit 1
+emit '{"started":true}'

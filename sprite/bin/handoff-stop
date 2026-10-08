@@ -2,9 +2,10 @@
 # handoff-stop <jobId>: stop a job's run in progress (/handoff pull --abort, the job
 # browser's Abort).
 #
-# pi runs under sudo in its own namespace, so a signal to the runner's process group
-# would not reach it. Instead: TERM the runner (its trap records `aborted` once pi is
-# gone), TERM pi and its tools (found by HANDOFF_JOB_ID), KILL whatever is left after
+# First the `stop` marker, so the runner's TERM trap records `aborted` (not an
+# interruption to resume), then delete the run's service, so the runtime does not start
+# it again (this TERMs the runner). pi runs under sudo in its own namespace, so TERM
+# pi and its tools too (found by HANDOFF_JOB_ID), and KILL whatever is left after
 # 20 s. If the runner could not record it, mark the job aborted here.
 set -uo pipefail
 # shellcheck source=lib.sh
@@ -18,18 +19,21 @@ status=$dir/status.json
 stopped=false
 if runner_alive "$job"; then
   stopped=true
-  runner=$(cat "$dir/runner.pid")
-  echo "== $(now) handoff-stop: stopping runner $runner" >>"$dir/runner.log"
-  kill -TERM "$runner" 2>/dev/null
+  runner=$(pid_of "$dir/runner.pid")
+  echo "== $(now) handoff-stop: stopping the run (runner ${runner:-gone})" >>"$dir/runner.log"
+  touch "$dir/stop"
+  service_delete "$job"
+  [ -n "$runner" ] && kill -TERM "$runner" 2>/dev/null
   # shellcheck disable=SC2046  # one pid per word
   kill -TERM $(job_pids "$job") 2>/dev/null
   for _ in $(seq 40); do
-    runner_alive "$job" || break
+    runner_alive "$job" || [ -n "$(job_pids "$job")" ] || break
     sleep 0.5
   done
-  if runner_alive "$job"; then
+  if pid_alive "$dir/runner.pid" || [ -n "$(job_pids "$job")" ]; then
     # shellcheck disable=SC2046
     kill -KILL "$runner" $(job_pids "$job") 2>/dev/null
+    rm -f "$dir/runner.pid"
     sleep 1
   fi
 fi
