@@ -82,9 +82,15 @@ export function jobAge(job: LocalJob, now: number): string {
 }
 
 /** What Enter offers for a job; only actions that are built. */
-export type JobAction = "show";
+export type JobAction = "show" | "pullOpen" | "pull" | "abort" | "open";
 
-export const ACTION_LABELS: Record<JobAction, string> = { show: "Show full message" };
+export const ACTION_LABELS: Record<JobAction, string> = {
+  show: "Show full message",
+  pullOpen: "Pull and open its conversation",
+  pull: "Pull, stay in this conversation",
+  abort: "Abort the run",
+  open: "Open its conversation",
+};
 
 export function jobActions(job: LocalJob): JobAction[] {
   switch (job.state) {
@@ -92,9 +98,13 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "needs_input":
     case "error":
     case "aborted":
-      return ["show"];
-    default:
-      return [];
+      return ["show", "pullOpen", "pull"];
+    case "starting":
+    case "preparing":
+    case "running":
+      return ["abort"];
+    case "pulled":
+      return job.pulledSessionFile === undefined ? [] : ["open"];
   }
 }
 

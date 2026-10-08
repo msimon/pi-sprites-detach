@@ -47,11 +47,12 @@ test("ages read naturally", () => {
   assert.equal(ago(undefined, NOW), "");
 });
 
-test("only finished jobs offer Show full message for now", () => {
-  assert.deepEqual(jobActions(job("h1", "done")), ["show"]);
-  assert.deepEqual(jobActions(job("h1", "needs_input")), ["show"]);
-  assert.deepEqual(jobActions(job("h1", "running")), []);
+test("actions follow the state", () => {
+  assert.deepEqual(jobActions(job("h1", "done")), ["show", "pullOpen", "pull"]);
+  assert.deepEqual(jobActions(job("h1", "needs_input")), ["show", "pullOpen", "pull"]);
+  assert.deepEqual(jobActions(job("h1", "running")), ["abort"]);
   assert.deepEqual(jobActions(job("h1", "pulled")), []);
+  assert.deepEqual(jobActions(job("h1", "pulled", { pulledSessionFile: "/tmp/x.jsonl" })), ["open"]);
 });
 
 test("plain list follows the filter", () => {

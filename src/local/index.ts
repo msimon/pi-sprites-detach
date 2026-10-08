@@ -3,9 +3,12 @@
 //   /handoff [prompt]          hand the conversation off to the Sprite as a new job
 //   /handoff sync              bring the Sprite's pi setup in line with the laptop
 //   /handoff status [filter]   browse jobs (all, running, needs-input, done, failed, aborted, pulled)
+//   /handoff pull [job] [--abort] [--switch] [--worktree]
+//                              bring a job's conversation and work back
 //
 // Does nothing when loaded inside a handoff run on the Sprite.
 
+import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   ACTION_LABELS,
@@ -17,17 +20,30 @@ import {
 } from "./browser.ts";
 import { loadConfig } from "./config.ts";
 import { ensureSpriteBuild } from "./install.ts";
-import { conversationName, JOB_FILTERS, listJobs, parseFilter, readJob } from "./jobs.ts";
+import {
+  ACTIVE_STATES,
+  conversationName,
+  JOB_FILTERS,
+  type LocalJob,
+  listJobs,
+  parseFilter,
+  readJob,
+} from "./jobs.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
 import { CONFIG_FILE } from "./paths.ts";
+import { type PullOptions, pullJob, StillRunningError, stopJob } from "./pull.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
 const PROGRESS_KEY = "handoff-progress";
-const SUBCOMMANDS = ["sync", "status"] as const;
+const SUBCOMMANDS = ["sync", "status", "pull"] as const;
+const PULL_FLAGS = ["--abort", "--switch", "--worktree"] as const;
 /** Filters as typed after `status` (dashes instead of underscores). */
 const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
+
+/** Jobs /handoff pull can take without --abort: their run has ended. */
+const isPullable = (job: LocalJob): boolean => job.state !== "pulled" && !ACTIVE_STATES.includes(job.state);
 
 export default function handoffLocal(pi: ExtensionAPI): void {
   if (process.env.HANDOFF_JOB_ID !== undefined) return;
@@ -49,12 +65,21 @@ export default function handoffLocal(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("handoff", {
-    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status)",
-    getArgumentCompletions: (prefix) => {
+    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | pull)",
+    getArgumentCompletions: async (prefix) => {
       const text = prefix.trimStart();
       if (text.startsWith("status ")) {
         const typed = text.slice("status ".length).trim();
         return TYPED_FILTERS.filter((f) => f.startsWith(typed)).map((f) => ({ value: `status ${f}`, label: f }));
+      }
+      if (text.startsWith("pull ")) {
+        const words = text.slice("pull ".length).split(/\s+/);
+        const typed = words.pop() ?? "";
+        const head = ["pull", ...words].join(" ");
+        const jobs = (await listJobs()).filter((j) => j.state !== "pulled").map((j) => j.jobId);
+        return [...jobs, ...PULL_FLAGS]
+          .filter((w) => w.startsWith(typed) && !words.includes(w))
+          .map((w) => ({ value: `${head} ${w}`, label: w }));
       }
       return SUBCOMMANDS.filter((s) => s.startsWith(text.trim())).map((s) => ({ value: s, label: s }));
     },
@@ -64,14 +89,33 @@ export default function handoffLocal(pi: ExtensionAPI): void {
       try {
         if (trimmed === "sync") await syncCommand(ctx);
         else if (subcommand === "status") await statusCommand(pi, ctx, runtime, rest.join(" "));
+        else if (subcommand === "pull") await pullCommand(ctx, runtime, rest);
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
-        ctx.ui.notify(`[pi-handoff] ${(error as Error).message}`, "error");
+        const message = (error as Error).message;
+        notifySafely(ctx, error instanceof StillRunningError ? `☁ ${message}` : `[pi-handoff] ${message}`, "error");
       } finally {
-        ctx.ui.setWidget(PROGRESS_KEY, undefined);
+        clearProgress(ctx);
       }
     },
   });
+}
+
+/** After a session switch the old context is gone; ignore it then. */
+function clearProgress(ctx: ExtensionCommandContext): void {
+  try {
+    ctx.ui.setWidget(PROGRESS_KEY, undefined);
+  } catch {
+    // The session was replaced (pull --switch): its widgets went with it.
+  }
+}
+
+function notifySafely(ctx: ExtensionCommandContext, text: string, type: "info" | "error"): void {
+  try {
+    ctx.ui.notify(text, type);
+  } catch {
+    // Old context after a session switch.
+  }
 }
 
 /** The current step, on a line above the input while a command runs (not saved). */
@@ -146,10 +190,105 @@ async function statusCommand(
       back,
     ]);
     const action = actions.find((a) => ACTION_LABELS[a] === choice);
-    if (action === undefined) continue;
-    if (action === "show") pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
+    switch (action) {
+      case undefined:
+        continue;
+      case "show":
+        pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
+        return;
+      case "pullOpen":
+      case "pull":
+        await runPull(ctx, runtime, job, { abort: false, worktree: false, switchTo: action === "pullOpen" });
+        return;
+      case "abort": {
+        const ok = await ctx.ui.confirm(
+          `Abort ${job.jobId}?`,
+          `Stop "${conversationName(job)}" now. Its work so far stays on the Sprite and on ${job.jobBranch ?? "the job"}; pull it or reply later.`,
+        );
+        if (!ok) continue;
+        progressTo(ctx, `Aborting ${job.jobId}`)("stopping the run…");
+        const status = await stopJob(job);
+        if (status !== undefined) await runtime.apply(job, status);
+        await runtime.refreshStatusLine();
+        return;
+      }
+      case "open":
+        if (job.pulledSessionFile === undefined || !existsSync(job.pulledSessionFile)) {
+          ctx.ui.notify(`The conversation of ${job.jobId} is no longer at ${job.pulledSessionFile ?? "its saved path"}.`, "error");
+          return;
+        }
+        await ctx.switchSession(job.pulledSessionFile);
+        return;
+    }
+  }
+}
+
+/** /handoff pull [job] [--abort] [--switch] [--worktree] */
+async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+  const flags = new Set(words.filter((w) => w.startsWith("--")));
+  const unknown = [...flags].filter((f) => !(PULL_FLAGS as readonly string[]).includes(f));
+  if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${PULL_FLAGS.join(", ")}`);
+  const ids = words.filter((w) => !w.startsWith("--"));
+  if (ids.length > 1) throw new Error("pull one job at a time");
+
+  let job: LocalJob | undefined;
+  if (ids[0] !== undefined) {
+    job = await readJob(ids[0]);
+    if (job === undefined || job.jobId === undefined) throw new Error(`no job ${ids[0]}`);
+  } else {
+    const candidates = (await listJobs()).filter(isPullable);
+    if (candidates.length === 0) throw new Error("no finished job to pull; /handoff status lists them all");
+    if (candidates.length === 1) job = candidates[0];
+    else if (ctx.hasUI) {
+      const labels = candidates.map((j) => `${j.jobId}  ${outcomeLabel(j.state)}  ${conversationName(j)}`);
+      const choice = await ctx.ui.select("Pull which job?", labels);
+      job = candidates[labels.indexOf(choice ?? "")];
+      if (job === undefined) return;
+    } else throw new Error(`several jobs to pull: ${candidates.map((j) => j.jobId).join(", ")}; name one`);
+  }
+  if (job === undefined) return;
+  if (job.state === "pulled") throw new Error(`${job.jobId} is already pulled; open it with /handoff status`);
+
+  await runPull(ctx, runtime, job, {
+    abort: flags.has("--abort"),
+    worktree: flags.has("--worktree"),
+    switchTo: flags.has("--switch"),
+  });
+}
+
+/** Where a pulled job's work is now. */
+function workLine(job: LocalJob): string {
+  if (job.jobBranch === undefined) return "No git repo: only the conversation came back.";
+  if (job.worktree !== undefined) return `Worktree: ${job.worktree} on branch ${job.jobBranch}.`;
+  return `Branch: origin/${job.jobBranch} fetched; your working tree is unchanged.`;
+}
+
+async function runPull(
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  job: LocalJob,
+  options: PullOptions & { switchTo: boolean },
+): Promise<void> {
+  const result = await pullJob(job, options, progressTo(ctx, `Pulling ${job.jobId}`));
+  const pulled = result.job;
+  const lines = [
+    `☁ Pulled job ${job.jobId}: ${conversationName(job)}`,
+    options.switchTo
+      ? "This is its conversation, continued here on the laptop."
+      : "Its conversation is saved with this folder's sessions: open it from /resume or /handoff status.",
+    workLine(pulled),
+    ...(result.snapshot ? ["The agent's uncommitted changes were committed and pushed first."] : []),
+    result.cleanupError === undefined ? "Removed from the Sprite." : `Could not clean up the Sprite: ${result.cleanupError}`,
+  ];
+  await runtime.refreshStatusLine();
+  clearProgress(ctx);
+  if (!options.switchTo) {
+    ctx.ui.notify(lines.join("\n"), "info");
     return;
   }
+  await ctx.switchSession(result.sessionFile, {
+    withSession: async (fresh) => fresh.ui.notify(lines.join("\n"), "info"),
+  });
 }
 
 /** Open the browser on the local records; on the first open, refresh them from the Sprite meanwhile. */
