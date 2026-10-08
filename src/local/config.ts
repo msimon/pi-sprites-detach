@@ -66,9 +66,11 @@ export const DEFAULT_CONFIG: HandoffConfig = {
   remote: {
     // pi-handoff's own laptop extension: as a package (git:github.com/msimon/pi-handoff)
     // it is excluded here; loaded from a repo path it is outside sync.paths anyway.
-    exclude: ["msimon/pi-handoff", "pi-cron-jobs", "pi-reminders"],
+    exclude: ["msimon/pi-handoff"],
+    // Does nothing unless that package is installed; it hides its tool without a UI (S3).
     replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts" },
-    tools: ["agent-browser"],
+    // Filled in by the setup prompt, from the recipes the laptop has the tool for.
+    tools: [],
   },
   copyProjectFiles: [".env*", ".scratch/"],
 };
