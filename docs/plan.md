@@ -208,9 +208,20 @@ The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, r
 
 - The window that started a job (same cmux surface, or same pi process outside cmux) reads `status.json` of its active jobs over `sprite exec` every ~45 s, one exec per Sprite. This is free: the Sprite is awake anyway while the hold is live.
 - No timing state: each tick reads the current status, so a tick missed during a laptop sleep only delays the warning until it wakes.
-- `/handoff status` refreshes every active job and lists all jobs that are not pulled.
-- On `done` / `needs_input` / `error` / `aborted`: an outcome card in the chat of the handed-off session: a custom session entry (`pi.appendEntry` with `registerEntryRenderer`), saved with the conversation and drawn by pi but never sent to the model, with the agent's final message (or the question, or the error) as Markdown, cut after 12 lines unless tool output is expanded. If the window shows another session, a plain notice instead, so the card is never saved into an unrelated conversation. Also `cmux notify --surface <surface> --title … --body …` (binary at `/Applications/cmux.app/Contents/Resources/bin/cmux` if not on the PATH), status line updated, polling for that job stops. A closed surface fails with `not_found`; the pi that was polling is gone with it, so on `session_start` the local extension also checks every active job once and reports jobs that finished while no pi was watching. Each run's notification is claimed with an exclusive file (`~/.pi-handoff/jobs/notified/`), so several open windows never notify twice.
+- Status line in every window: `☁ 1 running · 1 needs input · 2 done · 1 failed` (zero counts hidden; pulled and aborted jobs are not counted), so a finished job stays visible until it is pulled.
+- `/handoff status` opens the job browser (below).
+- On `done` / `needs_input` / `error` / `aborted`: an outcome card in the chat of the handed-off session: a custom session entry (`pi.appendEntry` with `registerEntryRenderer`), saved with the conversation and drawn by pi but never sent to the model, with the agent's final message (or the question, or the error) as Markdown, cut after 12 lines unless tool output is expanded. The card goes into whichever conversation the window has open, even if it is not the handed-off one. Also `cmux notify --surface <surface> --title … --body …` (binary at `/Applications/cmux.app/Contents/Resources/bin/cmux` if not on the PATH), status line updated, polling for that job stops. A closed surface fails with `not_found`; the pi that was polling is gone with it, so on `session_start` the local extension also checks every active job once and reports jobs that finished while no pi was watching. Each run's notification is claimed with an exclusive file (`~/.pi-handoff/jobs/notified/`), so several open windows never notify twice.
 
+### Job browser: `/handoff status [filter]`
+
+A full-screen view in the style of `/tree` and `/model` (`ctx.ui.custom`). It works from any pi window, since job records live in `~/.pi-handoff/jobs/`, not in a session.
+
+1. Opens at once on the local records and refreshes the active jobs from the Sprite in the background.
+2. Filters follow the job states: all (everything except pulled), running (starting, preparing, running), needs input, done, failed, aborted, pulled. A bar at the top shows them with their counts. Tab and Shift+Tab cycle through them; Ctrl+A/R/N/D/F/X/P jump to one, and the same key again goes back to all. `/handoff status <filter>` opens on that filter.
+3. One line per job: id, state, conversation name, branch, age. Jobs waiting on the user (needs input, failed, done) come first, newest first.
+4. A preview under the list follows the cursor: state, conversation, branch, times and the first ~8 lines of the last message, question or error.
+5. Enter opens the job's actions, only those that fit its state and are built: Show full message (posts the outcome card in the chat), Reply (M3), Pull it back, Abort, Open its session (M4), Watch (v2). Esc goes back to the list; Esc in the list closes it.
+6. Without a UI (print or RPC mode) it prints the plain list.
 ### Reply: `/handoff reply [job] <text>`
 
 Refuse while the job is `running`. Start a new run of that job with `<text>` as the prompt. The run reuses the job's worktree and session file: pi loads the full history from the session file and appends `<text>` as the next user message. The job defaults to the only one when there is just one.
@@ -242,9 +253,9 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 
 - **M0 Account and Sprite** (Marc + agent): ✅ Done 2026-10-07. Fly account with Sprites, `sprite login`, `sprite create pi-handoff --skip-console`. Bootstrap: Node 24.21.0 as the nvm default (matches the laptop); pi 1.0.4 via `curl -fsSL https://pi.dev/install.sh | sh` (managed install, `pi update` later; never `npm install -g`); pnpm and ast-grep via `npm install -g --prefix ~/.local` (nvm's global bin is not on the PATH); ripgrep and fd from apt (`fd` linked to `fdfind`); `LANG`/`LC_ALL=C.UTF-8` in `~/.profile`; git identity Marc Simon; model auth via `/login` in `sprite exec --tty -- pi` (Anthropic and Codex, Sprite-only tokens); `gh auth login` + `gh auth setup-git`. Checkpoint `v4` (`base`). Then Marc's pi config, the 11 packages, `agent-browser` 0.38.2 with Chrome and the `en_GB.UTF-8` locale (S4): checkpoint `v6`.
 - **M1 Spikes**: ✅ Done 2026-10-07. S1–S9 verified on the Sprite (results above); S10 done during M2.
-- **M2 Push + run + notify** (git protocol): ✅ Done 2026-10-08. Repo skeleton and the `~/.pi-handoff/sprite/` install builder, `/handoff`, config sync and `/handoff sync`, `handoff-run`, remote extension with the remote briefing, `examples/remote-ask.ts`, polling, warning, `/handoff status`, S10. Tested end to end against `msimon/pi-handoff-e2e` (snapshot commit, `.env` copied, clone, worktree, namespace, `npm install`, commit, push, PR #1, `node_modules` cache reused) and without git (done, needs_input, error). Not yet seen: the interactive TUI and cmux in the full flow.
-- **M3 Reply**: `/handoff reply`.
-- **M4 Pull**: refusal, `--abort`, session file with return briefing, `--switch`, `--worktree`, cleanup. The outcome card gains `Bring it back: /handoff pull <jobId> --switch`.
+- **M2 Push + run + notify** (git protocol): ✅ Done 2026-10-08. Repo skeleton and the `~/.pi-handoff/sprite/` install builder, `/handoff`, config sync and `/handoff sync`, `handoff-run`, remote extension with the remote briefing, `examples/remote-ask.ts`, polling, outcome card, status line, job browser (`/handoff status`), S10. Tested end to end against `msimon/pi-handoff-e2e` (snapshot commit, `.env` copied, clone, worktree, namespace, `npm install`, commit, push, PR #1, `node_modules` cache reused) and without git (done, needs_input, error), then from the interactive TUI in cmux (progress line, start message, outcome card).
+- **M3 Reply**: `/handoff reply`, and the Reply action in the job browser.
+- **M4 Pull**: refusal, `--abort`, session file with return briefing, `--switch`, `--worktree`, cleanup. The outcome card gains `Bring it back: /handoff pull <jobId> --switch`; the job browser gains Pull it back, Abort and Open its session.
 - **M5 Hardening**: concurrent jobs, README. Run recovery: a Sprite service `handoff-recover` (services restart at boot) finds jobs whose `status.json` says `running` but whose runner pid is dead, for example after a `cold` pause dropped memory, and restarts each runner on the same session file with a "You were interrupted; check the state and continue" prompt. The session file keeps everything up to the last completed step. A retry limit per job stops a crash loop; past it the job is marked `error`.
 
 ## Open questions
@@ -253,7 +264,7 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 
 ## v2
 
-- `/handoff watch`: overlay (`ctx.ui.custom`, like `/btw`) following `events.jsonl` over `sprite exec`; closing it stops the follow so the Sprite can sleep.
+- `/handoff watch`: overlay (`ctx.ui.custom`, like `/btw`) following `events.jsonl` over `sprite exec`; closing it stops the follow so the Sprite can sleep. Also the Watch action on running jobs in the job browser.
 - Answer from the notification via `cmux notify --reply`.
 - Consider `--mode rpc` on the Sprite so remote dialogs forward to the laptop instead of ending the run.
 - `/handoff cleanup [job]`: remove a job's local worktree and branch once merged or discarded; refuse if it has uncommitted changes.
