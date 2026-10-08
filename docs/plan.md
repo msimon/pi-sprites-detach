@@ -195,7 +195,7 @@ The laptop is the source of truth for Marc's pi setup; the Sprite gets a copy, r
 
 1. Situation: running unattended on a cloud machine as job `<jobId>`, split from session `<id>`; the user is away.
 2. No TUI: no dialogs and no live user, nobody reads the messages until the run ends. Make reasonable decisions and list the assumptions made. (The briefing does not mention `ask_user_question`: when a user extension provides it, the model sees it as a tool like any other.)
-3. Files: the checkout of `<jobBranch>` at the laptop path (or, without git, an empty folder whose files are not brought back). Path rule, fallback only (namespace unavailable, not built): `/Users/marc/<folder>` from the history now lives at `<jobRoot>/<folder>`.
+3. Files: the checkout of `<jobBranch>` at the laptop path (or, without git, an empty folder whose files are not brought back). Only the project folder is copied: files elsewhere on the laptop (for example under `/tmp`) are not there, so the agent says which one it needs, or asks, instead of guessing. Path rule, fallback only (namespace unavailable, not built): `/Users/marc/<folder>` from the history now lives at `<jobRoot>/<folder>`.
 4. Unavailable tools and skills, with the reason (Keychain, macOS-only, no cmux).
 5. Git rules: work only on `<jobBranch>`, commit as you go, push it, open a PR with `gh pr create --base <baseBranch> --fill` once the work is pushed and give its URL (or never, per config), do not touch other branches, never force-push.
 6. Dependencies: not installed. Run `<install command>` (from the detected lockfile, e.g. `pnpm install`, `npm install`, `uv sync`) before running tests or builds.

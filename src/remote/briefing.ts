@@ -39,13 +39,15 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
   n(
     "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message.",
   );
+  const missing =
+    "If you need a file from the laptop that is not here, do not guess its contents: say which one and why, or ask.";
   if (job.protocol === "git") {
     n(
-      `Files: ${job.mountAt} is a fresh checkout of branch ${job.jobBranch}, made from the user's working tree (uncommitted work included as a snapshot commit). Paths from earlier in the conversation still work. Git-ignored files other than the copied ones (such as .env files) and anything outside this repository are not here.`,
+      `Files: ${job.mountAt} is a fresh checkout of branch ${job.jobBranch}, made from the user's working tree (uncommitted work included as a snapshot commit). Paths inside this repository from earlier in the conversation still work. Only this repository was copied: git-ignored files other than the copied ones (such as .env files) and files elsewhere on the laptop (for example under /tmp or ~/Downloads) are not here. ${missing}`,
     );
   } else {
     n(
-      `Files: ${job.folder} is an empty folder here; the user's local files are not available. Files you create are not brought back to the laptop, so put results in your messages.`,
+      `Files: ${job.folder} is an empty folder here: no files from the laptop were copied, including files elsewhere (for example under /tmp). ${missing} Files you create are not brought back to the laptop, so put results in your messages.`,
     );
   }
   n(
