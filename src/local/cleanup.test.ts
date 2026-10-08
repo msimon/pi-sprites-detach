@@ -1,59 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { canCleanup, cleanupJob } from "./cleanup.ts";
+import { g, has, setupPulledJob as setup } from "./git-fixture.ts";
 import type { LocalJob } from "./jobs.ts";
-
-const g = (cwd: string, ...args: string[]): string =>
-  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-const has = (cwd: string, ref: string): boolean => {
-  try {
-    g(cwd, "rev-parse", "--verify", "--quiet", ref);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** A repo with origin, a pushed job branch and a worktree for it, made as `pull --worktree` makes it. */
-function setup(root: string, { merged }: { merged: boolean }) {
-  const origin = join(root, "origin.git");
-  const work = join(root, "work");
-  const wt = join(root, "wt", "h1");
-  g(root, "init", "-q", "--bare", origin);
-  g(root, "init", "-q", "-b", "main", work);
-  g(work, "remote", "add", "origin", origin);
-  writeFileSync(join(work, "a.txt"), "a\n");
-  g(work, "add", "a.txt");
-  g(work, "commit", "-qm", "a");
-  g(work, "push", "-q", "origin", "main");
-  g(work, "switch", "-q", "-c", "main-handoff-1");
-  writeFileSync(join(work, "b.txt"), "b\n");
-  g(work, "add", "b.txt");
-  g(work, "commit", "-qm", "b");
-  g(work, "push", "-q", "origin", "main-handoff-1");
-  g(work, "switch", "-q", "main");
-  g(work, "branch", "-q", "-D", "main-handoff-1");
-  g(work, "fetch", "-q", "origin");
-  g(work, "worktree", "add", "-q", "--track", "-b", "main-handoff-1", wt, "origin/main-handoff-1");
-  if (merged) {
-    g(work, "merge", "-q", "--no-ff", "-m", "merge", "main-handoff-1");
-    g(work, "push", "-q", "origin", "main");
-  }
-  const job = {
-    jobId: "h1",
-    state: "pulled",
-    protocol: "git",
-    folder: work,
-    jobBranch: "main-handoff-1",
-    baseBranch: "main",
-    worktree: wt,
-  } as LocalJob;
-  return { origin, work, wt, job };
-}
 
 const quiet = () => {};
 

@@ -9,7 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { plainList } from "./browser.ts";
 import { buildJobContext } from "./here.ts";
-import { ACTIVE_STATES, conversationName, type LocalJob, listJobs, parseFilter, readJob } from "./jobs.ts";
+import { ACTIVE_STATES, conversationName, type LocalJob, listJobs, parseFilter, readJob, writeJob } from "./jobs.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { outcomeLabel } from "./outcome.ts";
 import { pullJob, StillRunningError, stopJob } from "./pull.ts";
@@ -17,6 +17,7 @@ import { pushJob } from "./push.ts";
 import { canReply, replyJob } from "./reply.ts";
 import type { HandoffRuntime } from "./runtime.ts";
 import { lastCompletedLeaf } from "./session.ts";
+import { blockers, canCleanup, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
 
 type Update = ((partial: { content: Array<{ type: "text"; text: string }>; details: unknown }) => void) | undefined;
 
@@ -200,6 +201,44 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       if (status !== undefined) await runtime.apply(job, status);
       await runtime.refreshStatusLine();
       return text(`${job.jobId} is stopped. Its work so far is kept; it can be replied to or pulled.`);
+    },
+  });
+
+  pi.registerTool({
+    name: "handoff_cleanup",
+    label: "Handoff cleanup",
+    description:
+      "Remove what pulling a job left on the laptop: its worktree, its local branch and the fetched origin branch. Only for a pulled job whose work is merged into its base branch and whose worktree has no uncommitted changes; otherwise it refuses and says why. It never deletes anything on origin and cannot discard unmerged work: only the user can, with the /handoff cleanup command and its options. The user is asked to confirm.",
+    promptSnippet: "handoff_cleanup: remove a pulled, merged job's worktree and branch",
+    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3" }) }),
+    executionMode: "sequential",
+    async execute(_id, params, _signal, onUpdate, ctx) {
+      const job = await jobOrThrow(params.job);
+      if (job.cleanedAt !== undefined) return text(`${job.jobId} is already cleaned up.`);
+      if (!canCleanup(job)) throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: only a pulled job with a git branch can be cleaned up`);
+      const options = { discard: false, remote: false };
+      const progress = progressTo(onUpdate);
+      progress("looking at what is there…");
+      const plan = await planCleanup(job, options);
+      const reasons = blockers(plan, options);
+      if (reasons.length > 0) {
+        return text(
+          `Not cleaned up: ${reasons.join("; and ")}. Tell the user; they can run /handoff cleanup ${job.jobId} --discard to remove it anyway.`,
+        );
+      }
+      const items = describePlan(plan, options);
+      if (items.length > 0) {
+        const ok = await confirmed(ctx, `Clean up ${job.jobId}?`, `Remove:\n- ${items.join("\n- ")}`);
+        if (!ok) return text(DECLINED);
+      }
+      const { job: cleaned, removed } = await cleanupJob(job, options, progress, plan);
+      await writeJob(cleaned);
+      await runtime.refreshStatusLine();
+      return text(
+        removed.length === 0
+          ? `${job.jobId} had nothing left to remove.`
+          : `Cleaned up ${job.jobId}: removed ${removed.join(", ")}. Its conversation is kept.`,
+      );
     },
   });
 
