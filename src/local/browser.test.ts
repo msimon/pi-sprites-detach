@@ -48,8 +48,8 @@ test("ages read naturally", () => {
 });
 
 test("actions follow the state", () => {
-  assert.deepEqual(jobActions(job("h1", "done")), ["show", "pullOpen", "pull"]);
-  assert.deepEqual(jobActions(job("h1", "needs_input")), ["show", "pullOpen", "pull"]);
+  assert.deepEqual(jobActions(job("h1", "done")), ["reply", "show", "pullOpen", "pull"]);
+  assert.deepEqual(jobActions(job("h1", "needs_input")), ["reply", "show", "pullOpen", "pull"]);
   assert.deepEqual(jobActions(job("h1", "running")), ["abort"]);
   assert.deepEqual(jobActions(job("h1", "pulled")), []);
   assert.deepEqual(jobActions(job("h1", "pulled", { pulledSessionFile: "/tmp/x.jsonl" })), ["open"]);

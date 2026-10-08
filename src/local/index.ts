@@ -3,8 +3,13 @@
 //   /handoff [prompt]          hand the conversation off to the Sprite as a new job
 //   /handoff sync              bring the Sprite's pi setup in line with the laptop
 //   /handoff status [filter]   browse jobs (all, running, needs-input, done, failed, aborted, pulled)
+//   /handoff reply [job] [text]
+//                              another run of a finished job: an answer, or more work
 //   /handoff pull [job] [--abort] [--switch] [--worktree]
 //                              bring a job's conversation and work back
+//
+// A prompt for /handoff cannot start with one of these words; they are read as the
+// subcommand.
 //
 // Does nothing when loaded inside a handoff run on the Sprite.
 
@@ -21,7 +26,6 @@ import {
 import { loadConfig } from "./config.ts";
 import { ensureSpriteBuild } from "./install.ts";
 import {
-  ACTIVE_STATES,
   conversationName,
   JOB_FILTERS,
   type LocalJob,
@@ -33,6 +37,7 @@ import {
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
 import { CONFIG_FILE } from "./paths.ts";
 import { type PullOptions, pullJob, StillRunningError, stopJob } from "./pull.ts";
+import { canReply, replyJob } from "./reply.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
@@ -42,6 +47,7 @@ const PROGRESS_KEY = "handoff-progress";
 const SUBCOMMANDS = [
   { name: "sync", usage: "sync", description: "bring the Sprite's pi setup in line with the laptop" },
   { name: "status", usage: "status [filter]", description: "browse jobs by state, pull or abort them" },
+  { name: "reply", usage: "reply [job] [text]", description: "answer a finished job, or ask it for more work" },
   // pi's menu cuts the label at ~30 characters, so the options go in the description.
   { name: "pull", usage: "pull [job] [options]", description: "bring a job back. Options: --abort, --switch, --worktree" },
 ] as const;
@@ -53,8 +59,8 @@ const PULL_FLAGS = {
 /** Filters as typed after `status` (dashes instead of underscores). */
 const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 
-/** Jobs /handoff pull can take without --abort: their run has ended. */
-const isPullable = (job: LocalJob): boolean => job.state !== "pulled" && !ACTIVE_STATES.includes(job.state);
+/** Jobs /handoff pull can take without --abort: their run has ended. Same as reply. */
+const isPullable = canReply;
 
 export default function handoffLocal(pi: ExtensionAPI): void {
   if (process.env.HANDOFF_JOB_ID !== undefined) return;
@@ -87,6 +93,18 @@ export default function handoffLocal(pi: ExtensionAPI): void {
           return { value: `status ${f}`, label: f, description: `${count} job${count === 1 ? "" : "s"}` };
         });
       }
+      if (text.startsWith("reply ")) {
+        const words = text.slice("reply ".length).split(/\s+/);
+        if (words.length > 1) return null; // past the job id: free text
+        const typed = words[0] ?? "";
+        return (await listJobs())
+          .filter((j) => canReply(j) && j.jobId.startsWith(typed))
+          .map((j) => ({
+            value: `reply ${j.jobId} `,
+            label: j.jobId,
+            description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
+          }));
+      }
       if (text.startsWith("pull ")) {
         const words = text.slice("pull ".length).split(/\s+/);
         const typed = words.pop() ?? "";
@@ -113,6 +131,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         if (trimmed === "sync") await syncCommand(ctx);
         else if (subcommand === "status") await statusCommand(pi, ctx, runtime, rest.join(" "));
         else if (subcommand === "pull") await pullCommand(ctx, runtime, rest);
+        else if (subcommand === "reply") await replyCommand(ctx, runtime, trimmed.slice("reply".length).trim());
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         const message = (error as Error).message;
@@ -216,6 +235,12 @@ async function statusCommand(
     switch (action) {
       case undefined:
         continue;
+      case "reply": {
+        const text = await askReply(ctx, job);
+        if (text === undefined) continue;
+        await runReply(ctx, runtime, job, text);
+        return;
+      }
       case "show":
         pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
         return;
@@ -256,22 +281,14 @@ async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
   const ids = words.filter((w) => !w.startsWith("--"));
   if (ids.length > 1) throw new Error("pull one job at a time");
 
-  let job: LocalJob | undefined;
-  if (ids[0] !== undefined) {
-    job = await readJob(ids[0]);
-    if (job === undefined || job.jobId === undefined) throw new Error(`no job ${ids[0]}`);
-  } else {
-    const candidates = (await listJobs()).filter(isPullable);
-    if (candidates.length === 0) throw new Error("no finished job to pull; /handoff status lists them all");
-    if (candidates.length === 1) job = candidates[0];
-    else if (ctx.hasUI) {
-      const labels = candidates.map((j) => `${j.jobId}  ${outcomeLabel(j.state)}  ${conversationName(j)}`);
-      const choice = await ctx.ui.select("Pull which job?", labels);
-      job = candidates[labels.indexOf(choice ?? "")];
-      if (job === undefined) return;
-    } else throw new Error(`several jobs to pull: ${candidates.map((j) => j.jobId).join(", ")}; name one`);
+  const job =
+    ids[0] === undefined
+      ? await pickJob(ctx, isPullable, "Pull which job?", "no finished job to pull; /handoff status lists them all")
+      : await readJob(ids[0]);
+  if (job === undefined) {
+    if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
+    return;
   }
-  if (job === undefined) return;
   if (job.state === "pulled") throw new Error(`${job.jobId} is already pulled; open it with /handoff status`);
 
   await runPull(ctx, runtime, job, {
@@ -279,6 +296,78 @@ async function pullCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
     worktree: flags.has("--worktree"),
     switchTo: flags.has("--switch"),
   });
+}
+
+/**
+ * The only job that fits, or the user's pick when several do. Undefined when the
+ * pick is cancelled; throws when none fits or there is no UI to ask.
+ */
+async function pickJob(
+  ctx: ExtensionCommandContext,
+  fits: (job: LocalJob) => boolean,
+  title: string,
+  none: string,
+): Promise<LocalJob | undefined> {
+  const candidates = (await listJobs()).filter(fits);
+  if (candidates.length === 0) throw new Error(none);
+  if (candidates.length === 1) return candidates[0];
+  if (!ctx.hasUI) throw new Error(`several jobs fit: ${candidates.map((j) => j.jobId).join(", ")}; name one`);
+  const labels = candidates.map((j) => `${j.jobId}  ${outcomeLabel(j.state)}  ${conversationName(j)}`);
+  const choice = await ctx.ui.select(title, labels);
+  return candidates[labels.indexOf(choice ?? "")];
+}
+
+/** /handoff reply [job] [text]: without text, ask for it. */
+async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, args: string): Promise<void> {
+  const named = /^(h\d+)(?:\s+([\s\S]*))?$/.exec(args);
+  const job = named
+    ? await readJob(named[1] as string)
+    : await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /handoff status lists them all");
+  if (job === undefined) {
+    if (named) throw new Error(`no job ${named[1]}`);
+    return;
+  }
+  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
+  if (!canReply(job)) throw new Error(`${job.jobId} is still running; reply once it finishes`);
+
+  let text = named ? (named[2] ?? "") : args;
+  if (text.trim() === "") {
+    if (!ctx.hasUI) throw new Error("usage: /handoff reply [job] <text>");
+    const asked = await askReply(ctx, job);
+    if (asked === undefined) return;
+    text = asked;
+  }
+  await runReply(ctx, runtime, job, text);
+}
+
+/**
+ * Ask for a reply. A single question with options offers them first (plus writing
+ * one); otherwise an editor, prefilled with the questions when there are several.
+ */
+async function askReply(ctx: ExtensionCommandContext, job: LocalJob): Promise<string | undefined> {
+  const questions = job.state === "needs_input" ? (job.questions ?? []) : [];
+  const first = questions[0];
+  if (questions.length === 1 && first?.options !== undefined && first.options.length > 0) {
+    const write = "Write a reply…";
+    const choice = await ctx.ui.select(first.question, [...first.options.map((o) => o.label), write]);
+    if (choice === undefined) return undefined;
+    if (choice !== write) return choice;
+  }
+  const prefill = questions.length > 1 ? questions.map((q) => `${q.question}\n> \n`).join("\n") : "";
+  const title = questions.length === 1 && first ? `Reply to ${job.jobId}: ${first.question}` : `Reply to ${job.jobId}`;
+  const text = await ctx.ui.editor(title, prefill);
+  return text === undefined || text.trim() === "" ? undefined : text;
+}
+
+async function runReply(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob, text: string): Promise<void> {
+  const { synced } = await replyJob(job, text, progressTo(ctx, `Replying to ${job.jobId}`));
+  const lines = [
+    `☁ Replied to job ${job.jobId}: ${conversationName(job)}`,
+    `It is running again on Sprite ${job.sprite}. A message will appear here when it finishes or needs input.`,
+  ];
+  if (synced.length > 0) lines.push(`Synced first: ${synced.join(", ")}.`);
+  ctx.ui.notify(lines.join("\n"), "info");
+  await runtime.refreshStatusLine();
 }
 
 /** Where a pulled job's work is now. */

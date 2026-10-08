@@ -1,0 +1,29 @@
+#!/bin/bash
+# handoff-reply <jobId> <promptFile>: start another run of a job whose run has ended.
+#
+# The laptop uploads the reply to <promptFile> (under ~/.handoff/incoming/, so a job
+# that no longer exists does not get a stray folder). Refuses while a run is in
+# progress. The new run reuses the job's checkout and session file: pi reads the whole
+# history and takes the reply as the next user message.
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-reply <jobId> <promptFile>}
+prompt=${2:?usage: handoff-reply <jobId> <promptFile>}
+dir=$HANDOFF_STATE/$job
+
+if [ ! -f "$dir/job.json" ]; then
+  rm -f "$prompt"
+  emit '{"missing":true}'
+  exit 0
+fi
+if runner_alive "$job"; then
+  rm -f "$prompt"
+  emit "$(jq -c '{refused:"running", status:.}' "$dir/status.json")"
+  exit 0
+fi
+
+mv "$prompt" "$dir/prompt.txt" || exit 1
+setsid nohup "$HANDOFF_HOME/bin/handoff-run" "$job" >/dev/null 2>&1 </dev/null &
+emit "$(jq -nc --argjson p "$!" '{started:true, pid:$p}')"

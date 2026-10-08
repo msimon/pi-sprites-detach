@@ -74,7 +74,8 @@ export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}
   const footer: string[] = [];
   if (job.jobBranch !== undefined) footer.push(`Branch ${job.jobBranch} on origin.`);
   if (job.state === "done" || job.state === "needs_input" || job.state === "error" || job.state === "aborted") {
-    footer.push(`Bring it back: /handoff pull ${job.jobId} --switch  (or /handoff status)`);
+    footer.push(`Continue there: /handoff reply ${job.jobId} <text>`);
+    footer.push(`Bring it back:  /handoff pull ${job.jobId} --switch`);
   }
   return {
     jobId: job.jobId,

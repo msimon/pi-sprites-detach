@@ -82,9 +82,10 @@ export function jobAge(job: LocalJob, now: number): string {
 }
 
 /** What Enter offers for a job; only actions that are built. */
-export type JobAction = "show" | "pullOpen" | "pull" | "abort" | "open";
+export type JobAction = "reply" | "show" | "pullOpen" | "pull" | "abort" | "open";
 
 export const ACTION_LABELS: Record<JobAction, string> = {
+  reply: "Reply: answer or ask for more",
   show: "Show full message",
   pullOpen: "Pull and open its conversation",
   pull: "Pull, stay in this conversation",
@@ -98,7 +99,7 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "needs_input":
     case "error":
     case "aborted":
-      return ["show", "pullOpen", "pull"];
+      return ["reply", "show", "pullOpen", "pull"];
     case "starting":
     case "preparing":
     case "running":
