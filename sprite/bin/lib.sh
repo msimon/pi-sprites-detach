@@ -63,6 +63,15 @@ json_merge() {
     jq --argjson p "$patch" '. + $p' >"$tmp" && mv "$tmp" "$file"
 }
 
+# repo_lock <repoKey> ... repo_unlock: one job at a time runs git on a cached clone
+# (clone, fetch, worktree add/remove, branch -D); concurrent ones fail on git's own
+# lock files. On fd 9, so the lock goes with the process if it dies.
+repo_lock() {
+  mkdir -p "$HOME/repos/.locks"
+  exec 9>"$HOME/repos/.locks/${1//\//__}.lock"
+  flock 9
+}
+repo_unlock() { exec 9>&-; }
 # hold_start <name> [jobId]: keep the Sprite awake through the Tasks API until
 # hold_stop. 5 min expiry, renewed every 60 s. The heartbeat exits on its own once the
 # shell that started it is gone, so a killed script leaves at most 5 minutes of hold.

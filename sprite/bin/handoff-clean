@@ -25,9 +25,11 @@ if [ -f "$dir/job.json" ]; then
   branch=$(jq -r '.jobBranch // empty' "$dir/job.json")
   cache=$HOME/repos/$repo_key
   if [ -n "$repo_key" ] && [ -d "$cache/.git" ]; then
+    repo_lock "$repo_key"
     [ -n "$checkout" ] && git -C "$cache" worktree remove --force "$checkout" 2>/dev/null
     git -C "$cache" worktree prune
     [ -n "$branch" ] && git -C "$cache" branch -D "$branch" >/dev/null 2>&1
+    repo_unlock
   fi
 fi
 

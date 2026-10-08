@@ -70,6 +70,7 @@ on_term() {
 on_exit() {
   local rc=$? state
   trap - EXIT TERM INT HUP
+  repo_unlock   # a fail while preparing holds it; the detached delete below must not
   rm -f "$dir/runner.pid"
   hold_stop
   if [ -n "${interrupted:-}" ]; then
@@ -128,7 +129,10 @@ npm_cache_save() {
   d=$(npm_cache_dir) || return 0
   [ -d "$checkout/node_modules" ] && [ ! -d "$d/node_modules" ] || return 0
   echo "caching node_modules in $d"
-  mkdir -p "$d" && cp -a "$checkout/node_modules" "$d/.tmp.$$" && mv "$d/.tmp.$$" "$d/node_modules"
+  # Another job of the same repo may have saved it meanwhile: mv -T will not replace
+  # a non-empty folder, and the copy is dropped.
+  mkdir -p "$d" && cp -a "$checkout/node_modules" "$d/.tmp.$$" &&
+    { mv -T "$d/.tmp.$$" "$d/node_modules" 2>/dev/null || rm -rf "$d/.tmp.$$"; }
 }
 
 prepare() {
@@ -138,6 +142,7 @@ prepare() {
       url=$(get .cloneUrl)
       branch=$(get .jobBranch)
       cache=$HOME/repos/$repo_key
+      repo_lock "$repo_key"
       if [ ! -d "$cache/.git" ]; then
         echo "cloning $url into $cache"
         mkdir -p "$(dirname "$cache")"
@@ -147,6 +152,7 @@ prepare() {
       git -C "$cache" worktree prune
       mkdir -p "$(dirname "$checkout")"
       git -C "$cache" worktree add -B "$branch" "$checkout" "origin/$branch" || fail "git worktree add failed: $checkout"
+      repo_unlock
       ;;
     none)
       mkdir -p "$checkout"
@@ -206,9 +212,15 @@ else
   if [ "$prev" = preparing ]; then
     interruption "while preparing the checkout"
     echo "starting the preparation over"
-    [ "$protocol" = git ] && git -C "$HOME/repos/$repo_key" worktree remove --force "$checkout" 2>/dev/null
-    rm -rf "$checkout"
-    [ "$protocol" = git ] && git -C "$HOME/repos/$repo_key" worktree prune
+    if [ "$protocol" = git ]; then
+      repo_lock "$repo_key"
+      git -C "$HOME/repos/$repo_key" worktree remove --force "$checkout" 2>/dev/null
+      rm -rf "$checkout"
+      git -C "$HOME/repos/$repo_key" worktree prune
+      repo_unlock
+    else
+      rm -rf "$checkout"
+    fi
     prompt=$(cat "$dir/prompt.txt")
   elif pi_finished; then
     echo "pi had finished before the runner died; recording the outcome"
