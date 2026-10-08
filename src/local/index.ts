@@ -29,6 +29,7 @@ import {
 import { loadConfig } from "./config.ts";
 import { ensureSpriteBuild } from "./install.ts";
 import {
+  ACTIVE_STATES,
   conversationName,
   JOB_FILTERS,
   type LocalJob,
@@ -376,13 +377,24 @@ async function joinCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
 
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, canJoin, "Join which job?", "no finished job to join; /handoff status lists them all")
+      ? await pickJob(ctx, canJoin, "Join which job?", await noJoinableMessage())
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
     return;
   }
   await runJoin(ctx, runtime, job, { abort });
+}
+
+/** Why /handoff join has no job to offer: say when one is still running. */
+async function noJoinableMessage(): Promise<string> {
+  const running = (await listJobs()).filter((j) => ACTIVE_STATES.includes(j.state) && j.state !== "joined");
+  const first = running[0];
+  if (first === undefined) return "no job to join; /handoff status lists them all";
+  const ids = running.map((j) => j.jobId).join(", ");
+  return running.length === 1
+    ? `${ids} is still running, and a running job can't be joined. Join once it finishes (a card will appear), or stop its run and join now with /handoff join ${first.jobId} --abort.`
+    : `${ids} are still running, and a running job can't be joined. Join once one finishes (a card will appear), or stop a run and join now with /handoff join <job> --abort.`;
 }
 
 /**
