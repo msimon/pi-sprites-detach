@@ -26,7 +26,18 @@ nvm alias default "$node_version"
 
 echo "== pi"
 if [ ! -x "$HOME/.pi/agent/bin/pi" ]; then
-  # Managed install, updated with `pi update`. Never npm install -g.
+  # The Sprite image ships an old npm-installed pi in ~/.local. The install script
+  # would migrate it with `npm uninstall`, which hangs here: the package sits in the
+  # image's read-only layer, renaming it fails with EXDEV, and npm's copy fallback
+  # crawls. Deleting it directly is instant, and leaves the script nothing to migrate.
+  old=$HOME/.local/lib/node_modules/@earendil-works/pi-coding-agent
+  if [ -d "$old" ]; then
+    echo "removing the image's npm-installed pi $(jq -r .version "$old/package.json" 2>/dev/null)"
+    rm -rf "$old" "$HOME"/.local/lib/node_modules/@earendil-works/.pi-coding-agent-*
+    rmdir "$HOME/.local/lib/node_modules/@earendil-works" 2>/dev/null || true
+    [ -L "$HOME/.local/bin/pi" ] && rm -f "$HOME/.local/bin/pi"
+  fi
+  # Managed install, updated with `pi update`, as pi advises. Never npm install -g.
   curl -fsSL https://pi.dev/install.sh | sh
 fi
 
