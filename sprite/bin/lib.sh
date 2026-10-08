@@ -6,7 +6,7 @@ export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:/.sprite/bin:$PATH"
 # shellcheck disable=SC2034  # used by the scripts that source this file
 HANDOFF_STATE=$HOME/.handoff
 # shellcheck disable=SC2034
-HANDOFF_HOME=$HOME/.pi-handoff
+HANDOFF_HOME=$HOME/.pi-handoff/sprite
 SPRITE_ENV=/.sprite/bin/sprite-env
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }

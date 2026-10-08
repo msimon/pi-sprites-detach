@@ -1,42 +1,58 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HOME, SPRITE_HOME } from "./paths.ts";
-import { rewriteSettings } from "./settings.ts";
+import { expandHome, HOME, SPRITE_HOME } from "./paths.ts";
+import { type RewriteContext, rewriteSettings } from "./settings.ts";
 
+const ask = `${HOME}/.pi-handoff/extensions/remote-ask.ts`;
 const rules = {
-  exclude: ["pi-handoff", "pi-reminders"],
-  replace: { "npm:@juicesharp/rpiv-ask-user-question": "builtin:remote-ask", "npm:old-thing": "npm:new-thing" },
+  exclude: ["pi-handoff/src", "pi-reminders"],
+  replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts", "npm:old-thing": "npm:new-thing" },
 };
-
-test("packages: exclude, builtin replace, plain replace, object entries", () => {
-  const { settings, changes } = rewriteSettings(
-    {
-      packages: [
-        "npm:pi-lens",
-        "npm:@juicesharp/rpiv-ask-user-question",
-        { source: "npm:old-thing", extensions: ["x"] },
-        "git:github.com/msimon/pi-handoff",
-      ],
-    },
-    rules,
-    () => true,
-  );
-  assert.deepEqual(settings.packages, ["npm:pi-lens", { source: "npm:new-thing", extensions: ["x"] }]);
-  assert.equal(changes.length, 3);
+const context = (synced: string[], existing: string[] = synced): RewriteContext => ({
+  isSynced: (path) => synced.includes(path),
+  exists: (path) => existing.includes(path),
+  expandHome,
 });
 
-test("extensions: unsynced paths dropped, home paths mapped to the Sprite", () => {
-  const synced = `${HOME}/.pi/agent/extensions/pi-usage/index.ts`;
-  const { settings } = rewriteSettings(
+test("a package replaced by a file moves to extensions; a source stays a package", () => {
+  const { settings, changes, errors } = rewriteSettings(
     {
-      extensions: [synced, `${HOME}/programing/pi-cron-jobs/extension/index.ts`, `${HOME}/programing/pi-reminders/src/index.ts`],
+      packages: ["npm:pi-lens", "npm:@juicesharp/rpiv-ask-user-question", { source: "npm:old-thing", extensions: ["x"] }],
+      extensions: [],
+    },
+    rules,
+    context([ask]),
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(settings.packages, ["npm:pi-lens", { source: "npm:new-thing", extensions: ["x"] }]);
+  assert.deepEqual(settings.extensions, [`${SPRITE_HOME}/.pi-handoff/extensions/remote-ask.ts`]);
+  assert.equal(changes.length, 2);
+});
+
+test("a replacement file that is missing or not synced is an error", () => {
+  const settings = { packages: ["npm:@juicesharp/rpiv-ask-user-question"] };
+  assert.match(rewriteSettings(settings, rules, context([], [])).errors[0] ?? "", /does not exist/);
+  assert.match(rewriteSettings(settings, rules, context([], [ask])).errors[0] ?? "", /not under sync.paths/);
+});
+
+test("extensions: excluded and unsynced paths dropped, home paths mapped to the Sprite", () => {
+  const synced = `${HOME}/.pi/agent/extensions/pi-usage/index.ts`;
+  const { settings, changes } = rewriteSettings(
+    {
+      extensions: [
+        synced,
+        `${HOME}/programing/pi-cron-jobs/extension/index.ts`,
+        `${HOME}/programing/pi-reminders/src/index.ts`,
+        `${HOME}/programing/pi-handoff/src/local/index.ts`,
+      ],
       theme: "dark",
       somePath: `${HOME}/.pi/agent/x`,
     },
     rules,
-    (path) => path === synced,
+    context([synced]),
   );
   assert.deepEqual(settings.extensions, [`${SPRITE_HOME}/.pi/agent/extensions/pi-usage/index.ts`]);
   assert.equal(settings.somePath, `${SPRITE_HOME}/.pi/agent/x`);
   assert.equal(settings.theme, "dark");
+  assert.equal(changes.length, 3);
 });

@@ -1,5 +1,5 @@
 // Builds ~/.pi-handoff/sprite/, the self-contained folder that is synced to the
-// Sprite's ~/.pi-handoff/. pi has no install hook, so this runs on session_start and
+// Sprite's ~/.pi-handoff/sprite/. pi has no install hook, so this runs on session_start and
 // before every sync; it only rewrites the folder when the package's files changed.
 //
 //   bin/        handoff-run, handoff-sync-apply, lib.sh      (from sprite/bin)

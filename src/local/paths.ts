@@ -10,15 +10,21 @@ export const HOME = homedir();
 export const HANDOFF_HOME = join(HOME, ".pi-handoff");
 export const CONFIG_FILE = join(HANDOFF_HOME, "config.json");
 export const JOBS_DIR = join(HANDOFF_HOME, "jobs");
-/** Everything the Sprite needs, built from the package; synced as-is to REMOTE_HANDOFF_HOME. */
+/** Everything the Sprite needs, built from the package; synced as-is to the same path there. */
 export const SPRITE_BUILD_DIR = join(HANDOFF_HOME, "sprite");
+/** Marc's own extensions for the Sprite (remote.replace targets); synced like any sync path. */
+export const USER_EXTENSIONS_DIR = join(HANDOFF_HOME, "extensions");
 
 /** Root of this package (the repository, or the installed package). */
 export const PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 export const SPRITE_HOME = "/home/sprite";
-/** The Sprite's copy of SPRITE_BUILD_DIR. Replaced wholesale on update; holds no state. */
-export const REMOTE_HANDOFF_HOME = `${SPRITE_HOME}/.pi-handoff`;
+/**
+ * The Sprite's copy of SPRITE_BUILD_DIR, at the same path as on the laptop. Replaced
+ * wholesale on update; holds no state. Its parent ~/.pi-handoff/ also receives synced
+ * user files such as ~/.pi-handoff/extensions/, which an update never touches.
+ */
+export const REMOTE_HANDOFF_HOME = `${SPRITE_HOME}/.pi-handoff/sprite`;
 /** Job and sync state on the Sprite. */
 export const REMOTE_STATE = `${SPRITE_HOME}/.handoff`;
 

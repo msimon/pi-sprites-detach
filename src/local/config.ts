@@ -1,9 +1,24 @@
 // ~/.pi-handoff/config.json. The first run writes the defaults, so everything that
 // syncs or is skipped is visible and editable in one file.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { CONFIG_FILE } from "./paths.ts";
+import { CONFIG_FILE, PACKAGE_ROOT, USER_EXTENSIONS_DIR } from "./paths.ts";
+
+/** Example user extensions the default config refers to. */
+const EXAMPLES = ["remote-ask.ts"];
+
+async function installExamples(): Promise<void> {
+  await mkdir(USER_EXTENSIONS_DIR, { recursive: true });
+  for (const name of EXAMPLES) {
+    try {
+      // COPYFILE_EXCL: an existing file is Marc's and stays as it is.
+      await copyFile(join(PACKAGE_ROOT, "examples", name), join(USER_EXTENSIONS_DIR, name), 1);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
 
 export interface HandoffConfig {
   /** Sprite for new jobs; each job records its own. */
@@ -19,7 +34,10 @@ export interface HandoffConfig {
   remote: {
     /** Packages or extension paths not loaded on the Sprite (substring match). */
     exclude: string[];
-    /** Same matching, swapped for another source; `builtin:` ones come with pi-handoff. */
+    /**
+     * Same matching, swapped for another source: `npm:…`, `git:…`, or a file of your
+     * own (`~/…`), which must be under sync.paths, e.g. in ~/.pi-handoff/extensions/.
+     */
     replace: Record<string, string>;
     /** Programs an extension needs that pi does not install, kept at the laptop's version. */
     tools: string[];
@@ -41,12 +59,15 @@ export const DEFAULT_CONFIG: HandoffConfig = {
       "~/.pi/agent/trust.json",
       "~/.agents/skills",
       "~/.pi/web-search.json",
+      "~/.pi-handoff/extensions",
     ],
     exclude: ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"],
   },
   remote: {
-    exclude: ["pi-handoff", "pi-cron-jobs", "pi-reminders"],
-    replace: { "npm:@juicesharp/rpiv-ask-user-question": "builtin:remote-ask" },
+    // pi-handoff's own laptop extension: as a package (git:github.com/msimon/pi-handoff)
+    // it is excluded here; loaded from a repo path it is outside sync.paths anyway.
+    exclude: ["msimon/pi-handoff", "pi-cron-jobs", "pi-reminders"],
+    replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts" },
     tools: ["agent-browser"],
   },
   copyProjectFiles: [".env*", ".scratch/"],
@@ -58,7 +79,11 @@ export interface LoadedConfig {
   created: boolean;
 }
 
-/** Read the config, writing the defaults first if there is none. Missing keys take the defaults. */
+/**
+ * Read the config. On first run, write the defaults and copy the example user
+ * extensions they refer to into ~/.pi-handoff/extensions/ (never overwriting); from
+ * then on both are Marc's to edit. Missing keys take the defaults.
+ */
 export async function loadConfig(): Promise<LoadedConfig> {
   let text: string;
   try {
@@ -67,6 +92,7 @@ export async function loadConfig(): Promise<LoadedConfig> {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await mkdir(dirname(CONFIG_FILE), { recursive: true });
     await writeFile(CONFIG_FILE, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
+    await installExamples();
     return { config: structuredClone(DEFAULT_CONFIG), created: true };
   }
 

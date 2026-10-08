@@ -1,14 +1,15 @@
 // pi-handoff remote extension, loaded only on the Sprite by handoff-run
-// (`pi -e ~/.pi-handoff/extension/index.ts`). Does nothing outside a handoff run.
+// (`pi -e ~/.pi-handoff/sprite/extension/index.ts`). Does nothing outside a handoff run.
 //
 // - adds the remote briefing to the system prompt on every run
-// - provides a headless ask_user_question that ends the run
 // - records the final assistant text for the notification
+//
+// Asking the user is not built in: a user extension provides ask_user_question
+// (see examples/remote-ask.ts and `remote.replace` in the config).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createAskTool } from "./ask.ts";
 import { buildBriefing, detectInstallCommand } from "./briefing.ts";
 import type { RemoteJob } from "./job.ts";
 
@@ -26,8 +27,6 @@ export default function handoffRemote(pi: ExtensionAPI): void {
     process.stderr.write(`[pi-handoff] cannot read ${jobDir}/job.json: ${String(error)}\n`);
     return;
   }
-
-  pi.registerTool(createAskTool(jobDir));
 
   pi.on("before_agent_start", (event) => {
     event.systemPromptOptions.sections.handoff_briefing = buildBriefing(job, detectInstallCommand(job));

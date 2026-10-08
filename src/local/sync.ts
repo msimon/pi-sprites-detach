@@ -3,6 +3,7 @@
 // upload and a detached apply on the Sprite (handoff-sync-apply), polled until done.
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { lstat, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -78,7 +79,8 @@ async function collect(config: HandoffConfig): Promise<LocalSet> {
   } catch (error: unknown) {
     throw new Error(`cannot read ${SETTINGS_FILE}: ${(error as Error).message}`);
   }
-  const rewritten = rewriteSettings(raw, config.remote, isSynced);
+  const rewritten = rewriteSettings(raw, config.remote, { isSynced, exists: existsSync, expandHome });
+  if (rewritten.errors.length > 0) throw new Error(`config: ${rewritten.errors.join("; ")}`);
   notes.push(...rewritten.changes.map((c) => `settings.json: ${c}`));
   const settings = `${JSON.stringify(rewritten.settings, null, 2)}\n`;
 

@@ -37,7 +37,7 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
     `Situation: you are running unattended on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. The user handed this conversation off because they are away. Earlier messages in this conversation happened on their Mac; from here on, every tool runs on this Linux machine.`,
   );
   n(
-    "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message. If you are truly blocked and need the user to decide, call the ask_user_question tool: it ends this run and delivers the question to the user, and their answer arrives as the next message. Never ask a question in plain text and stop: that question is not delivered as one.",
+    "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message.",
   );
   if (job.protocol === "git") {
     n(
