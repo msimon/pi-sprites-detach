@@ -67,8 +67,81 @@ async function readManifest(): Promise<{ hash?: string } | undefined> {
   }
 }
 
-/** Make sure ~/.pi-handoff/sprite/ matches the package. Cheap when nothing changed. */
-export async function ensureSpriteBuild(): Promise<SpriteBuild> {
+/**
+ * Make sure ~/.pi-handoff/sprite/ matches the package. Cheap when nothing changed.
+ * `onNote` hears about a stale lock that had to be removed.
+ */
+export async function ensureSpriteBuild(onNote?: (note: string) => void): Promise<SpriteBuild> {
+  return withBuildLock(buildIfStale, onNote);
+}
+
+/**
+ * Make sure the build is current, then `use` it (pack it for upload) while no other
+ * pi window can rebuild it underneath.
+ */
+export async function withSpriteBuild<T>(
+  use: (build: SpriteBuild) => Promise<T>,
+  onNote?: (note: string) => void,
+): Promise<T> {
+  return withBuildLock(async () => use(await buildIfStale()), onNote);
+}
+
+// Building and packing take well under a second; a lock older than this was left by a
+// pi process that died while holding it.
+const LOCK_FILE = `${SPRITE_BUILD_DIR}.lock`;
+const STALE_MS = 10_000;
+
+/**
+ * Run `fn` holding ~/.pi-handoff/sprite.lock, created exclusively with the holder's
+ * pid and time. Another holder, in this process or another pi window, is waited for;
+ * a stale lock (holder gone, or older than STALE_MS) is removed.
+ */
+async function withBuildLock<T>(fn: () => Promise<T>, onNote?: (note: string) => void): Promise<T> {
+  await mkdir(join(LOCK_FILE, ".."), { recursive: true });
+  for (;;) {
+    try {
+      await writeFile(LOCK_FILE, JSON.stringify({ pid: process.pid, at: Date.now() }), { flag: "wx" });
+      break;
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const holder = await readLock();
+    if (holder === undefined) continue; // released (or half-written) meanwhile: try again
+    const age = Date.now() - holder.at;
+    if (age > STALE_MS || !processAlive(holder.pid)) {
+      await rm(LOCK_FILE, { force: true });
+      onNote?.(`removed a stale build lock (pi process ${holder.pid}, ${Math.round(age / 1000)} s old)`);
+      continue;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  try {
+    return await fn();
+  } finally {
+    await rm(LOCK_FILE, { force: true });
+  }
+}
+
+async function readLock(): Promise<{ pid: number; at: number } | undefined> {
+  try {
+    const lock = JSON.parse(await readFile(LOCK_FILE, "utf8")) as { pid?: unknown; at?: unknown };
+    return typeof lock.pid === "number" && typeof lock.at === "number" ? { pid: lock.pid, at: lock.at } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Rebuild the folder if its manifest does not match the package. Under the lock. */
+async function buildIfStale(): Promise<SpriteBuild> {
   const files = await sources();
   const hash = createHash("sha256");
   for (const file of files) {
@@ -78,44 +151,19 @@ export async function ensureSpriteBuild(): Promise<SpriteBuild> {
   }
   const digest = hash.digest("hex").slice(0, 16);
   const version = await packageVersion();
-
   if ((await readManifest())?.hash === digest) return { dir: SPRITE_BUILD_DIR, hash: digest, version };
 
-  let pending = building.get(digest);
-  if (pending === undefined) {
-    pending = build(files, digest, version).finally(() => building.delete(digest));
-    building.set(digest, pending);
+  // Build next to the target and swap, so a half-built folder is never synced.
+  const next = `${SPRITE_BUILD_DIR}.next`;
+  await rm(next, { recursive: true, force: true });
+  for (const file of files) {
+    const target = join(next, file.target);
+    await mkdir(join(target, ".."), { recursive: true });
+    await cp(file.source, target);
+    await chmod(target, file.mode);
   }
-  await pending;
+  await writeFile(join(next, "manifest.json"), `${JSON.stringify({ version, hash: digest }, null, 2)}\n`);
+  await rm(SPRITE_BUILD_DIR, { recursive: true, force: true });
+  await rename(next, SPRITE_BUILD_DIR);
   return { dir: SPRITE_BUILD_DIR, hash: digest, version };
-}
-
-/** Builds in progress in this process, so concurrent handoffs share one. */
-const building = new Map<string, Promise<void>>();
-
-/**
- * Build next to the target and swap, so a half-built folder is never synced. Each
- * build has its own folder: another pi window may be building the same one, and if
- * it swaps first, its result is ours.
- */
-async function build(files: Awaited<ReturnType<typeof sources>>, digest: string, version: string): Promise<void> {
-  const next = `${SPRITE_BUILD_DIR}.next-${process.pid}-${digest}`;
-  try {
-    await rm(next, { recursive: true, force: true });
-    for (const file of files) {
-      const target = join(next, file.target);
-      await mkdir(join(target, ".."), { recursive: true });
-      await cp(file.source, target);
-      await chmod(target, file.mode);
-    }
-    await writeFile(join(next, "manifest.json"), `${JSON.stringify({ version, hash: digest }, null, 2)}\n`);
-    try {
-      await rm(SPRITE_BUILD_DIR, { recursive: true, force: true });
-      await rename(next, SPRITE_BUILD_DIR);
-    } catch (error: unknown) {
-      if ((await readManifest())?.hash !== digest) throw error;
-    }
-  } finally {
-    await rm(next, { recursive: true, force: true });
-  }
 }

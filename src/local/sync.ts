@@ -10,7 +10,7 @@ import { join, relative } from "node:path";
 import type { HandoffConfig } from "./config.ts";
 import { emitJson, run, runOk, sleep, spriteJson } from "./exec.ts";
 import { createMatcher } from "./glob.ts";
-import { ensureSpriteBuild } from "./install.ts";
+import { withSpriteBuild } from "./install.ts";
 import { expandHome, HOME, REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
 import { rewriteSettings } from "./settings.ts";
 
@@ -210,7 +210,6 @@ export async function syncSprite(
   onProgress: (text: string) => void,
   signal?: AbortSignal,
 ): Promise<SyncReport> {
-  const build = await ensureSpriteBuild();
   const local = await collect(config);
   const notes = [...local.notes];
 
@@ -235,11 +234,15 @@ export async function syncSprite(
     const up = `${REMOTE_STATE}/sync/upload-${nonce}`;
     const files: Array<[string, string]> = [];
 
-    if (remote.handoffHash !== build.hash) {
-      await tar(build.dir, join(tmp, "handoff.tgz"), ["."]);
-      files.push([join(tmp, "handoff.tgz"), `${up}/handoff.tgz`]);
-      updated.push("pi-handoff");
-    }
+    // Under the build lock: another pi window cannot swap the folder while it is packed.
+    const recipes = await withSpriteBuild(async (current) => {
+      if (remote.handoffHash !== current.hash) {
+        await tar(current.dir, join(tmp, "handoff.tgz"), ["."]);
+        files.push([join(tmp, "handoff.tgz"), `${up}/handoff.tgz`]);
+        updated.push("pi-handoff");
+      }
+      return new Set((await readdir(join(current.dir, "setup/tools"))).map((f) => f.replace(/\.sh$/, "")));
+    }, (note) => notes.push(note));
 
     if (remote.applied.configHash !== local.configHash) {
       await tar(HOME, join(tmp, "config.tgz"), local.files);
@@ -252,7 +255,6 @@ export async function syncSprite(
       updated.push(`pi config (${local.files.length} files)`);
     }
 
-    const recipes = new Set((await readdir(join(build.dir, "setup/tools"))).map((f) => f.replace(/\.sh$/, "")));
     const tools: Record<string, string> = {};
     for (const [name, version] of Object.entries(wantedTools)) {
       if (!recipes.has(name)) {
