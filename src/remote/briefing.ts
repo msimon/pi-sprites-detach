@@ -55,7 +55,7 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
     const pr =
       job.pr === "never"
         ? "Do not open a pull request."
-        : `When the work is ready, open a pull request with \`gh pr create --base ${job.baseBranch}\`.`;
+        : `When the task is complete and pushed, open a pull request with \`gh pr create --base ${job.baseBranch} --fill\` (or update the existing one), and put its URL in your final message.`;
     n(
       `Git: work only on branch ${job.jobBranch}. Commit as you go with clear messages and push with \`git push origin ${job.jobBranch}\`, so the work is safe even if this machine stops. ${pr} Never touch other branches and never force-push.`,
     );
