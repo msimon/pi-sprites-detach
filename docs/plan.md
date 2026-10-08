@@ -288,12 +288,19 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 
 ## v2
 
+Next, in this order of interest (decided 2026-10-08):
+
 - `/handoff watch`: overlay (`ctx.ui.custom`, like `/btw`) following `events.jsonl` over `sprite exec`; closing it stops the follow so the Sprite can sleep. Also the Watch action on running jobs in the job browser.
-- Answer from the notification via `cmux notify --reply`.
-- Consider `--mode rpc` on the Sprite so remote dialogs forward to the laptop instead of ending the run.
 - `/handoff cleanup [job]`: remove a job's local worktree and branch once merged or discarded; refuse if it has uncommitted changes.
-- Sprite credentials for Keychain-backed skills: Sprite-only tokens (Gmail app password, Google OAuth, `ntn`) stored on the Sprite, and each skill falls back to an environment variable or file when the Keychain is unavailable. This lifts the "extra secrets" non-goal for those skills.
-- Non-git folders: optional tarball round-trip for small folders, returned into `<path>.handoff-<job>/`, never in place.
+- Joined jobs counted apart from running ones: `☁ 1 joined` in the status line and a `joined` filter in the job browser.
+- A pi skill and tools bundled in this package, so the model can drive handoff too. The skill (`skills/pi-handoff/SKILL.md`, `"skills": ["./skills"]` in the package's `pi` section) says when to hand off, what each state means, the workflow (status, then pull `--here`, then continue) and the rules (never merge unless asked). Tools wrap the context-free functions (`listJobs`, `replyJob`, `pullJob`, `joinJob`, `stopJob`, `bringContextHere`): `handoff_status`, `handoff_reply`, `handoff_pull` (always `--here`: a tool cannot `switchSession`), `handoff_join`, `handoff_abort`, with a confirmation dialog for what cleans the Sprite, stops a run or sends code to the cloud. `handoff_start` forks from the last completed assistant message, as `/split` does, ignoring the turn in progress: the working tree is snapshotted as it is now, the conversation copy stops at that message, and the tool's `prompt` carries what the job must know about the current turn; the tool result tells the model to say it handed off and stop. Not loaded on the Sprite (same exclusions as the extension), so jobs never see these tools.
+
+Later:
+
+- A live option chosen when handing off, for when the user stays around: `--mode rpc` on the Sprite so remote dialogs forward to the laptop and the same run continues with the answer, and questions as dialogs in a joined pane. The default stays detached and away (a question ends the run), because a run waiting on a dialog holds the Sprite awake and nobody answers with the laptop closed.
+- Sprite credentials for Keychain-backed skills: Sprite-only tokens (Gmail app password, Google OAuth, `ntn`) stored on the Sprite, and each skill falls back to an environment variable or file (or a `security` shim reading one) when the Keychain is unavailable. This lifts the "extra secrets" non-goal for those skills.
+
+Dropped: answering from the notification (`cmux notify --reply`), non-git folders (tarball round trip), joining a running job (it is headless `pi -p`; it would mean running every job inside tmux).
 
 ## Cost expectations
 
