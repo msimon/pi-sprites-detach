@@ -117,9 +117,9 @@ Pull options:
     "exclude": ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"]
   },
   "remote": {
-    "exclude": ["msimon/pi-handoff", "pi-cron-jobs", "pi-reminders"],
+    "exclude": ["msimon/pi-handoff"],
     "replace": { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts" },
-    "tools": ["agent-browser"]
+    "tools": []
   },
   "copyProjectFiles": [".env*", ".scratch/"]
 }
@@ -131,7 +131,7 @@ Pull options:
 - `sync.exclude`: globs skipped inside those paths.
 - `remote.exclude`: packages or extensions not loaded on the Sprite (substring match on `settings.json`'s `packages` and `extensions`).
 - `remote.replace`: same matching, swapped for another source (`npm:…`, `git:…`, or a file under `sync.paths`). The default swaps the interactive question tool, which needs a UI, for `remote-ask.ts`: a version that ends the run with the question, so it reaches you as a card.
-- `remote.tools`: CLI tools your extensions need that pi does not install. `/handoff sync` installs each one on the Sprite at the version installed on your laptop, and reinstalls it when yours changes. Recipes exist for `agent-browser`, `rg`, `fd`, `pnpm` and `ast-grep` (`sprite/setup/tools/`); add a recipe for any other tool.
+- `remote.tools`: CLI tools your extensions or projects need that pi does not install. `/handoff sync` installs each one on the Sprite at the version installed on your laptop, and reinstalls it when yours changes. Recipes exist for `agent-browser`, `rg`, `fd`, `ast-grep`, and the package managers `pnpm`, `yarn`, `bun` and `uv` (`sprite/setup/tools/`); add a recipe for any other tool. A tool that comes inside a pi package (like `nu` with a nushell extension) needs no entry: the package brings it on the Sprite too. A repo with a `pnpm`, `yarn`, `bun` or `uv` lockfile is not handed off until that tool is listed here (npm comes with Node).
 - `copyProjectFiles`: git-ignored project files copied into the job's checkout (never committed). A repo can override it with `copyProjectFiles` in `<repo>/.pi-handoff.json`.
 
 ## How it works

@@ -6,7 +6,8 @@ import { basename, join } from "node:path";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { RemoteJob } from "../remote/job.ts";
 import { loadConfig, projectFilePatterns } from "./config.ts";
-import { emitJson, runOk, spriteJson } from "./exec.ts";
+import { emitJson, run, runOk, spriteJson } from "./exec.ts";
+import { missingPackageManager } from "./lockfiles.ts";
 import { detectGit, ignoredProjectFiles, pushNewJobBranch, snapshotCommit } from "./git.ts";
 import { type LocalJob, reserveJobId, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE, SPRITE_HOME } from "./paths.ts";
@@ -58,6 +59,18 @@ export async function pushJob(
   // The session's own cwd, not ctx.cwd: they can differ by a symlink (/tmp vs
   // /private/tmp), and pi refuses to resume a session whose cwd does not exist.
   const folder = ctx.sessionManager.getCwd();
+
+  // Before anything is synced or pushed. Only git repos: a non-git folder's files do
+  // not travel, so it needs no package manager on the Sprite.
+  const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd: folder });
+  if (top.code === 0) {
+    const missing = missingPackageManager(folder, top.stdout.trim(), config.remote.tools);
+    if (missing !== undefined) {
+      throw new Error(
+        `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-handoff/config.json, and run /handoff again.`,
+      );
+    }
+  }
 
   progress("syncing the Sprite…");
   const report = await syncSprite(config, sprite, progress);

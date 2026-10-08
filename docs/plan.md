@@ -60,7 +60,7 @@ pi-handoff/
   src/local/        pi extension loaded on the laptop: /handoff commands, config sync, status line, polling, notifications
   src/remote/       pi extension loaded only for job runs on the Sprite: briefing, final message
   sprite/bin/       handoff-run (Tasks API hold, checkout, mount namespace, pi, status), handoff-sync-apply, lib.sh
-  sprite/setup/     bootstrap.sh (what pi-handoff needs: Node, pi, locale, git config; deletes the image's npm-installed pi first, whose migration by the install script hangs on the overlay with EXDEV), install-tool.sh, tools/<name>.sh recipes for optional CLI tools (agent-browser, rg, fd, pnpm, ast-grep), installed through remote.tools
+  sprite/setup/     bootstrap.sh (what pi-handoff needs: Node, pi, locale, git config; deletes the image's npm-installed pi first, whose migration by the install script hangs on the overlay with EXDEV), install-tool.sh, tools/<name>.sh recipes for optional CLI tools (agent-browser, rg, fd, ast-grep; package managers pnpm, yarn, bun, uv), installed through remote.tools
   examples/         user extensions the default config refers to (remote-ask.ts)
   docs/plan.md      this file
 ```
@@ -135,9 +135,9 @@ Remote, per job at `~/.handoff/<jobId>/`:
     "exclude": ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"]
   },
   "remote": {
-    "exclude": ["msimon/pi-handoff", "pi-cron-jobs", "pi-reminders"],
+    "exclude": ["msimon/pi-handoff"],
     "replace": { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts" },
-    "tools": ["agent-browser"]
+    "tools": []
   },
   "copyProjectFiles": [".env*", ".scratch/"]
 }
@@ -150,6 +150,7 @@ Remote, per job at `~/.handoff/<jobId>/`:
 - `remote.exclude`: entries not loaded on the Sprite. pi's `settings.json` has two lists: `packages` (`npm:…` / `git:…` sources pi installs and updates; a package can bundle extensions, skills, prompts and themes) and `extensions` (paths to local `.ts` files loaded directly). An entry matches either list by substring, so `"pi-reminders"` is enough. `msimon/pi-handoff` keeps pi-handoff's own laptop extension off the Sprite when it is installed as a package. Separately, any extension path outside `sync.paths` is dropped, because the file would not exist there; to run a local extension on the Sprite, add its folder to `sync.paths` (today only `pi-cron-jobs` and `pi-reminders`, which live in their repos); `/handoff sync` lists everything it drops.
 - `remote.replace`: same matching, swapped for another source: `npm:…` or `git:…` (goes to `packages`), or a file of Marc's own (`~/…`, goes to `extensions`; it must exist and be under `sync.paths`, or the sync stops with an error). The default swaps `rpiv-ask-user-question`, which hides its tool when there is no UI (S3), for `~/.pi-handoff/extensions/remote-ask.ts`, copied from `examples/` on first run. Only one of them may be loaded: two extensions registering the same tool name stop pi from starting (S3). A replacement `ask_user_question` follows the runner's contract: the job's state folder is in `$HANDOFF_DIR` (unset outside a job run); write the questions to `$HANDOFF_DIR/question.json`; end the run with `terminate: true`. The runner then reports `needs_input`. If the model asks in plain text instead, the run ends `done` and the notification carries that text.
 - `remote.tools`: programs an extension needs that pi does not install, e.g. `agent-browser`, the CLI that `pi-agent-browser-native` wraps (S4). Names only: Config sync reads the laptop's installed version (`<tool> --version`, falling back to `brew list --versions <tool>`) and reinstalls on the Sprite only when the versions differ, so both machines stay on the same version without a pinned number going stale. How each tool is installed on Linux (for `agent-browser`: `npm install -g --prefix ~/.local agent-browser@<version>`, then `agent-browser install --with-deps`) lives in the setup script.
+  Defaults: `remote.tools` is empty (the setup prompt in the README offers the recipe tools found on the laptop) and `remote.exclude` holds only `msimon/pi-handoff`. A tool bundled in a pi package (nushell's `nu`) comes with the package and needs no recipe. `/handoff` refuses a git repo whose lockfile names a package manager other than npm (`pnpm`, `yarn`, `bun`, `uv`; folder first, then repo root, as the briefing's install command) when that tool is not in `remote.tools`, before anything is synced or pushed: the agent would otherwise hit a missing command on the Sprite.
 - `copyProjectFiles`: git-ignored files from the handed-off project that are copied into the job's checkout (git protocol step 3). A project can override the list with `copyProjectFiles` in `<repo>/.pi-handoff.json`.
 ## Flows
 
