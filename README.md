@@ -93,7 +93,7 @@ Pull options:
 
 ## The model can drive it too
 
-The package also installs a skill and six tools, so you can say "I have to leave, hand this off" or "what did h3 find?" and the model does it:
+The package also installs a skill and seven tools, so you can say "I have to leave, hand this off" or "what did h3 find?" and the model does it:
 
 | Tool | What it does | Asks you first |
 | --- | --- | --- |
@@ -102,6 +102,7 @@ The package also installs a skill and six tools, so you can say "I have to leave
 | `handoff_pull` | Brings a job back and returns a summary of what it did (like `pull --here`) | yes |
 | `handoff_join` | Opens a live session on a finished job | only to stop a run |
 | `handoff_abort` | Stops a run in progress | yes |
+| `handoff_cleanup` | Removes a pulled, merged job's worktree and local branches (never anything on origin, and never unmerged work: that stays a command you type) | yes |
 | `handoff_start` | Hands the current work off | yes |
 
 "Asks you first" is a yes/no dialog in pi; without a UI the tool refuses. `handoff_start` forks the conversation at the model's last finished message, as `/split` does, so the job does not see the turn that called it: the model puts what the job needs in the prompt, and tells you it handed off and stops. The tools are not loaded on the Sprite.

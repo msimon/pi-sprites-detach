@@ -16,6 +16,7 @@ pi-handoff moves a conversation to a cloud machine. The agent there keeps workin
 | `handoff_pull` | Brings a finished job back and returns a summary of what it did, its commits and final message | yes |
 | `handoff_join` | Opens a terminal for the user on a finished job (they type there, not you) | only with `abort` |
 | `handoff_abort` | Stops a run in progress | yes |
+| `handoff_cleanup` | Removes a pulled, merged job's worktree and local branches (nothing on origin) | yes |
 | `handoff_start` | Hands the current work off to run unattended | yes |
 
 ## Handing work off
@@ -41,3 +42,15 @@ pi-handoff moves a conversation to a cloud machine. The agent there keeps workin
 ## Answering a job's question
 
 Pass the user's answer as it is; do not guess for them. The job runs again on the same conversation, so the reply can be short ("minus", "yes, go ahead").
+
+## Cleaning up after a pull
+
+Pulling a job with a worktree leaves, on the user's laptop, that worktree, a local branch and the fetched `origin/<branch>`. When the user says the work is merged or done with, use `handoff_cleanup`: it removes those three and keeps the conversation. It only works once the branch is merged into its base branch (a squash-merged pull request counts) and the worktree has no uncommitted changes; otherwise it says why. Pass that on and stop: do not try to force it. Only the user can discard unmerged work, or delete the branch on origin, by typing `/handoff cleanup <job> --discard` or `--remote` themselves.
+
+## Commands only the user can run
+
+You cannot type slash commands. Tell the user about them when they fit:
+
+- `/handoff watch [job]`: a live, read-only view of a job's run (its text and tool calls), or a replay of a finished job's last run. Suggest it when the user asks how a running job is going; you can read its state with `handoff_status`, but the live view is theirs.
+- `/handoff status`: the job browser, with every action above and filters by state.
+- `/handoff cleanup <job> --discard` and `--remote`: the forced forms of `handoff_cleanup`.
