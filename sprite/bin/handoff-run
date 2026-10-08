@@ -104,7 +104,7 @@ case $prev in
     ;;
 esac
 
-hold_start "handoff-$job"
+hold_start "handoff-$job" "$job"
 trap on_exit EXIT
 trap on_term TERM INT HUP
 

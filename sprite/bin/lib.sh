@@ -63,16 +63,18 @@ json_merge() {
     jq --argjson p "$patch" '. + $p' >"$tmp" && mv "$tmp" "$file"
 }
 
-# hold_start <name>: keep the Sprite awake through the Tasks API until hold_stop.
-# 5 min expiry, renewed every 60 s. The heartbeat exits on its own once the shell
-# that started it is gone, so a killed script leaves at most 5 minutes of hold.
+# hold_start <name> [jobId]: keep the Sprite awake through the Tasks API until
+# hold_stop. 5 min expiry, renewed every 60 s. The heartbeat exits on its own once the
+# shell that started it is gone, so a killed script leaves at most 5 minutes of hold.
+# With a jobId it also keeps going while the job's pi is alive: a killed runner must
+# not let the Sprite pause under pi, whose turn the restarted runner then records.
 hold_start() {
   HOLD_NAME=$1
   _hold_put
   (
-    owner=$$
+    owner=$$ job=${2:-}
     while sleep 60; do
-      kill -0 "$owner" 2>/dev/null || exit 0
+      kill -0 "$owner" 2>/dev/null || { [ -n "$job" ] && [ -n "$(job_pids "$job")" ]; } || exit 0
       _hold_put
     done
   ) &
