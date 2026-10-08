@@ -108,25 +108,36 @@ async function highestJobBranch(info: GitInfo, prefix: string): Promise<number> 
 
 /**
  * Push a commit to a new branch on origin, `<base>-handoff-<n>` with the next free n,
- * and return its name; no local branch is created. The lease with an empty value
- * makes the push fail if the branch exists, so two windows handing off from the same
- * repo at the same moment cannot share one: the loser tries the next n.
+ * and return its name; no local branch is created. Two windows handing off from the
+ * same repo at the same moment must not share a branch, and their snapshot commits can
+ * be identical (same tree, parent and second). So a push counts only if it created the
+ * branch: the empty lease rejects one that exists with another commit, and git's
+ * porcelain `=` (already up to date) means it exists with ours. Either way, the next n.
  * --no-verify: a snapshot of work in progress would trip pre-push checks.
+ * `startAt` is for tests: the n to try first instead of origin's highest + 1.
  */
-export async function pushNewJobBranch(info: GitInfo, sha: string, attempts = 5): Promise<string> {
+export async function pushNewJobBranch(
+  info: GitInfo,
+  sha: string,
+  { attempts = 5, startAt }: { attempts?: number; startAt?: number } = {},
+): Promise<string> {
   const base = info.branch ?? `detached-${info.head.slice(0, 7)}`;
   const prefix = `${base}-handoff-`;
-  let n = (await highestJobBranch(info, prefix)) + 1;
+  let n = startAt ?? (await highestJobBranch(info, prefix)) + 1;
   for (let attempt = 1; ; attempt++) {
     const branch = `${prefix}${n}`;
     const ref = `refs/heads/${branch}`;
-    const result = await run("git", ["push", "--no-verify", `--force-with-lease=${ref}:`, "origin", `${sha}:${ref}`], {
-      cwd: info.repoRoot,
-    });
-    if (result.code === 0) return branch;
-    const taken = /stale info|already exists|\[rejected\]/.test(result.stderr);
+    const result = await run(
+      "git",
+      ["push", "--porcelain", "--no-verify", `--force-with-lease=${ref}:`, "origin", `${sha}:${ref}`],
+      { cwd: info.repoRoot },
+    );
+    const line = result.stdout.split("\n").find((l) => l.includes(`\t${sha}:${ref}\t`) || l.includes(`:${ref}\t`));
+    const flag = line?.[0];
+    if (result.code === 0 && flag !== "=" && flag !== "!") return branch;
+    const taken = flag === "=" || flag === "!" || /stale info|already exists|\[rejected\]/.test(result.stderr);
     if (!taken || attempt >= attempts) {
-      throw new Error(`git push of the job branch ${branch} failed: ${result.stderr.trim()}`);
+      throw new Error(`git push of the job branch ${branch} failed: ${(result.stderr || result.stdout).trim()}`);
     }
     n = Math.max(n + 1, (await highestJobBranch(info, prefix)) + 1);
   }

@@ -25,6 +25,9 @@ test("pushNewJobBranch: concurrent pushes of the same commit get different branc
     const branches = await Promise.all([1, 2, 3].map(() => pushNewJobBranch(info, info.head)));
     assert.deepEqual([...branches].sort(), ["main-handoff-1", "main-handoff-2", "main-handoff-3"]);
     assert.equal(await pushNewJobBranch(info, info.head), "main-handoff-4");
+    // A window that read origin before another pushed the same commit: git calls the
+    // push up to date, which must not count as creating the branch.
+    assert.equal(await pushNewJobBranch(info, info.head, { startAt: 4 }), "main-handoff-5");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
