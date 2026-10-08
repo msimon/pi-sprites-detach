@@ -4,12 +4,25 @@ import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { JOBS_DIR } from "./paths.ts";
 
-/** `starting` is local only (before the runner is up); the rest mirror status.json. */
-export type JobState = "starting" | "preparing" | "running" | "done" | "needs_input" | "error" | "aborted" | "pulled";
+/**
+ * `starting` is local only (before the runner is up); the rest mirror status.json.
+ * `joined`: interactive pi on the Sprite (/handoff join), until it quits.
+ */
+export type JobState =
+  | "starting"
+  | "preparing"
+  | "running"
+  | "joined"
+  | "done"
+  | "needs_input"
+  | "error"
+  | "aborted"
+  | "pulled";
 
-export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running"];
+/** States in which a pi works on the job: polled, and reply and pull wait for them. */
+export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running", "joined"];
 
-/** Job browser filters, one per state (running groups its first seconds). */
+/** Job browser filters, one per state (running groups its first seconds and joined jobs). */
 export const JOB_FILTERS = ["all", "running", "needs_input", "done", "failed", "aborted", "pulled"] as const;
 export type JobFilter = (typeof JOB_FILTERS)[number];
 

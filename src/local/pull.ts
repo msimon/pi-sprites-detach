@@ -72,7 +72,9 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
   if (prepared.refused === "running") {
     await writeJob(current);
     throw new StillRunningError(
-      `${job.jobId} is still running. Wait for it to finish, or stop it and bring it back with /handoff pull ${job.jobId} --abort.`,
+      current.state === "joined"
+        ? `${job.jobId} is joined: pi is live on the Sprite. Quit it there (it also quits once idle with nobody attached), or stop it and bring the job back with /handoff pull ${job.jobId} --abort.`
+        : `${job.jobId} is still running. Wait for it to finish, or stop it and bring it back with /handoff pull ${job.jobId} --abort.`,
     );
   }
 

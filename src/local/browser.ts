@@ -46,6 +46,7 @@ const STATE_ORDER: Record<JobState, number> = {
   starting: 3,
   preparing: 3,
   running: 3,
+  joined: 3,
   aborted: 4,
   pulled: 5,
 };
@@ -74,6 +75,8 @@ export function jobAge(job: LocalJob, now: number): string {
     case "preparing":
     case "running":
       return `started ${ago(job.startedAt, now)}`;
+    case "joined":
+      return `joined ${ago(job.updatedAt, now)}`;
     case "pulled":
       return `pulled ${ago(job.updatedAt, now)}`;
     default:
@@ -82,10 +85,11 @@ export function jobAge(job: LocalJob, now: number): string {
 }
 
 /** What Enter offers for a job; only actions that are built. */
-export type JobAction = "reply" | "show" | "pullOpen" | "pull" | "abort" | "open";
+export type JobAction = "reply" | "join" | "show" | "pullOpen" | "pull" | "abort" | "open";
 
 export const ACTION_LABELS: Record<JobAction, string> = {
   reply: "Reply: answer or ask for more",
+  join: "Join on the Sprite: work with it live",
   show: "Show full message",
   pullOpen: "Pull and open its conversation",
   pull: "Pull, stay in this conversation",
@@ -99,11 +103,13 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "needs_input":
     case "error":
     case "aborted":
-      return ["reply", "show", "pullOpen", "pull"];
+      return ["reply", "join", "show", "pullOpen", "pull"];
     case "starting":
     case "preparing":
     case "running":
       return ["abort"];
+    case "joined":
+      return ["join", "abort"];
     case "pulled":
       return job.pulledSessionFile === undefined ? [] : ["open"];
   }

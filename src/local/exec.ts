@@ -51,7 +51,7 @@ export async function runOk(file: string, args: string[], options: RunOptions = 
   return result.stdout.trim();
 }
 
-function spriteBin(): string {
+export function spriteBin(): string {
   const local = join(HOME, ".local/bin/sprite");
   return existsSync(local) ? local : "sprite";
 }
