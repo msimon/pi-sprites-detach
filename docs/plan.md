@@ -240,6 +240,17 @@ Works on any job whose run has ended (done, needs input, failed, aborted): to an
 4. Clean up the Sprite (`handoff-clean`, decision 9) only once the session file is safely on the laptop, then mark the job `pulled` with the local session path.
 5. `--switch`: open the job session now (`switchSession`, a command-context operation). Otherwise the main session stays active; the job browser's Open its conversation opens it later, as does `/resume`.
 
+### Join: `/handoff join [job]` (M6)
+
+Work with the job's agent directly on the Sprite, interactively, without pulling.
+
+1. Opens a cmux split running `sprite exec -s <sprite> --tty …`, which attaches to interactive pi on the job's session file, inside the job's mount namespace (same checkout, same paths). Outside cmux it prints that command to run in any terminal.
+2. pi runs inside tmux on the Sprite, so a dropped connection or a closed pane does not kill it (a dropped `sprite exec` would, S1); joining again reattaches.
+3. Only between runs: a headless run cannot take input, so join refuses while one is in progress, or offers to abort it first.
+4. While pi lives the job is `joined`: reply and pull refuse, a hold keeps the Sprite awake, and the remote briefing says the user is present instead of away.
+5. pi quits as soon as it is idle and nobody is attached. Closing the pane mid-turn lets the agent finish the turn (like a job), then pi quits; closing it while pi is idle quits it at once. Detection, in the remote extension inside the joined pi: a busy flag from `agent_start` / `agent_end` (a message queued during a turn starts the next one right after `agent_end`), and `tmux list-clients -t handoff-<jobId>` for attached clients (same user and `/tmp` socket inside the namespace). Every 5 s it checks; idle with no clients on two checks in a row (so a quick reconnect does not count) calls `ctx.shutdown()`. pi is the tmux session's only program, so the session closes with it; the wrapper that started it then writes `done` and the last message to `status.json` and releases the hold, like `handoff-run`, and the laptop posts the usual card. A `client-detached` hook plus a check at `agent_end` would be event-driven, but needs a channel into pi; the 5 s check is enough.
+6. The job browser gains Join on the Sprite for finished jobs. Watch (v2) stays separate: a read-only view of a headless run.
+
 ## Spikes — verify before building
 
 Each is a short experiment on a real Sprite. Results go back into this plan.
@@ -263,6 +274,7 @@ Each is a short experiment on a real Sprite. Results go back into this plan.
 - **M3 Reply**: ✅ Done 2026-10-08. `/handoff reply`, the Reply action in the job browser, the card line. Tested from a script on one git job: it asked with options (`needs_input`), the reply `minus` led to the commit and push (`done`), a further reply ran `sleep 600` and was aborted, and a reply after the abort resumed the conversation and answered. Four runs on the same checkout and branch, no re-clone.
 - **M4 Pull**: ✅ Done 2026-10-08. Refusal, `--abort`, session file with return briefing, `--switch`, `--worktree`, cleanup. The outcome card gains `Bring it back: /handoff pull <jobId> --switch`; the job browser gains Pull and open, Pull and stay here, Abort and Open its conversation. Built 2026-10-08 and tested from scripts against `msimon/pi-handoff-e2e`: a done job with uncommitted leftovers (committed and pushed at pull, local working tree untouched, Sprite cleaned, the model read the return briefing correctly), a running job (pull refused, Abort stopped pi and its `sleep` tool in ~1 s, no hold left), and an aborted job pulled with `--worktree`. In pi itself: the browser's Pull and open and Open its conversation work (2026-10-08). Still to try: resuming a `--worktree` session from `/resume`.
 - **M5 Hardening**: concurrent jobs, README. Run recovery: a Sprite service `handoff-recover` (services restart at boot) finds jobs whose `status.json` says `running` but whose runner pid is dead, for example after a `cold` pause dropped memory, and restarts each runner on the same session file with a "You were interrupted; check the state and continue" prompt. The session file keeps everything up to the last completed step. A retry limit per job stops a crash loop; past it the job is marked `error`.
+- **M6 Join**: `/handoff join` (see Join), the joined state, the idle-and-unattended quit rule, the browser action. Spike first: how pi's TUI feels over `sprite exec --tty` (latency, colours, keys), that `ctx.shutdown()` exits interactive pi cleanly, and that `tmux list-clients` sees the cmux client attached over `sprite exec --tty`.
 
 ## Open questions
 
