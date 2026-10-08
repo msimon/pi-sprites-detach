@@ -10,6 +10,7 @@
 //                              brings its context into this conversation
 //   /handoff join [job] [--abort]
 //                              work with a job's agent live on the Sprite (a cmux split)
+//   /handoff watch [job]       follow a run live (read-only), or replay a finished job's last run
 //
 // A prompt for /handoff cannot start with one of these words; they are read as the
 // subcommand.
@@ -48,6 +49,7 @@ import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 import { registerHandoffTools } from "./tools.ts";
+import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from "./watch.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
@@ -62,6 +64,7 @@ const SUBCOMMANDS = [
     description: "bring a job back. Options: --here, --switch, --abort, --worktree",
   },
   { name: "join", usage: "join [job]", description: "work with a job's agent live on the Sprite" },
+  { name: "watch", usage: "watch [job]", description: "follow a run live, read-only, or replay the last one" },
 ] as const;
 const PULL_FLAGS = {
   "--here": "bring its context into this conversation",
@@ -96,7 +99,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("handoff", {
-    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | reply | pull | join)",
+    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | reply | pull | join | watch)",
     getArgumentCompletions: async (prefix) => {
       const text = prefix.trimStart();
       if (text.startsWith("status ")) {
@@ -131,6 +134,16 @@ export default function handoffLocal(pi: ExtensionAPI): void {
             description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
           }));
       }
+      if (text.startsWith("watch ")) {
+        const typed = text.slice("watch ".length).trim();
+        return (await listJobs())
+          .filter((j) => canWatch(j) && j.jobId.startsWith(typed))
+          .map((j) => ({
+            value: `watch ${j.jobId}`,
+            label: j.jobId,
+            description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
+          }));
+      }
       if (text.startsWith("pull ")) {
         const words = text.slice("pull ".length).split(/\s+/);
         const typed = words.pop() ?? "";
@@ -159,6 +172,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         else if (subcommand === "pull") await pullCommand(pi, ctx, runtime, rest);
         else if (subcommand === "reply") await replyCommand(ctx, runtime, trimmed.slice("reply".length).trim());
         else if (subcommand === "join") await joinCommand(ctx, runtime, rest);
+        else if (subcommand === "watch") await watchCommand(ctx, runtime, rest);
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         const message = (error as Error).message;
@@ -270,6 +284,9 @@ async function statusCommand(
       }
       case "join":
         await runJoin(ctx, runtime, job, { abort: false });
+        return;
+      case "watch":
+        await runWatch(ctx, runtime, job);
         return;
       case "show":
         pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job, { full: true }));
@@ -386,6 +403,49 @@ async function joinCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
     return;
   }
   await runJoin(ctx, runtime, job, { abort });
+}
+
+/** /handoff watch [job]: a read-only view of a run as it happens, or of a finished job's last run. */
+async function watchCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+  if (words.length > 1) throw new Error("watch one job at a time");
+  let job: LocalJob | undefined;
+  if (words[0] !== undefined) {
+    job = await readJob(words[0]);
+    if (job === undefined) throw new Error(`no job ${words[0]}`);
+  } else {
+    const live = (await listJobs()).filter((j) => canWatch(j) && isLive(j));
+    job = live.length === 1 ? live[0] : await pickJob(ctx, canWatch, "Watch which job?", "no job to watch; /handoff status lists them all");
+  }
+  if (job === undefined) return;
+  await runWatch(ctx, runtime, job);
+}
+
+async function runWatch(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob): Promise<void> {
+  if (!ctx.hasUI) throw new Error("/handoff watch needs the terminal UI");
+  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled: its events are no longer on the Sprite`);
+  if (job.state === "joined") throw new Error(`${job.jobId} is joined, so it is not streamed: attach to it with /handoff join ${job.jobId}`);
+
+  // The Sprite needs the handoff-watch script; this is one small read when nothing changed.
+  const progress = progressTo(ctx, `Watching ${job.jobId}`);
+  progress("syncing the Sprite…");
+  const { config } = await loadConfig();
+  await syncSprite(config, job.sprite, progress);
+  clearProgress(ctx);
+
+  // Closing the view ends the stream; the kill of `sprite exec` ends handoff-watch on the Sprite.
+  const open: { stream?: WatchStream } = {};
+  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+    const view = new WatchView(theme, job, () => tui.terminal.rows, () => tui.requestRender(), () => done());
+    open.stream = startWatchStream(
+      job,
+      (line) => view.feed(line),
+      (result) => view.streamClosed(result),
+    );
+    return view;
+  });
+  open.stream?.stop();
+  await runtime.poll({ all: true }).catch(() => undefined);
+  await runtime.refreshStatusLine();
 }
 
 /** Why /handoff join has no job to offer: say when one is still running. */

@@ -1,0 +1,47 @@
+#!/bin/bash
+# handoff-watch <jobId>: stream the events of a job's last run (/handoff watch).
+#
+# Prints the lines of ~/.handoff/<jobId>/events.jsonl (pi's --mode json stream), from
+# the start of the last run (each run begins with a session header; the file is
+# appended to), then follows it while the run lasts. A finished job's last run is
+# replayed. It ends by itself when the run does, with one last line
+#   {"type":"watch_end","state":"<state from status.json>"}
+# The laptop kills its `sprite exec` to stop early; that ends this script too.
+# Before the run has written anything it prints {"type":"watch_wait"} once.
+set -uo pipefail
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "$0")")/lib.sh"
+
+job=${1:?usage: handoff-watch <jobId>}
+dir=$HANDOFF_STATE/$job
+events=$dir/events.jsonl
+state_now() { jq -r '.state // empty' "$dir/status.json" 2>/dev/null; }
+end() { printf '{"type":"watch_end","state":"%s"}\n' "$(state_now)"; }
+
+[ -f "$dir/job.json" ] || { echo '{"type":"watch_error","message":"no such job on this Sprite"}'; exit 2; }
+
+if [ ! -s "$events" ]; then
+  # A run that is preparing has not started pi yet.
+  runner_alive "$job" || { end; exit 0; }
+  echo '{"type":"watch_wait"}'
+  until [ -s "$events" ] || ! runner_alive "$job"; do sleep 1; done
+  [ -s "$events" ] || { end; exit 0; }
+fi
+
+start=$(grep -n '^{"type":"session"' "$events" | tail -1 | cut -d: -f1)
+start=${start:-1}
+
+if ! runner_alive "$job"; then
+  tail -n +"$start" "$events"
+  end
+  exit 0
+fi
+
+tail -n +"$start" -F "$events" 2>/dev/null &
+tail_pid=$!
+trap 'kill "$tail_pid" 2>/dev/null' EXIT
+while runner_alive "$job"; do sleep 1; done
+sleep 1   # the last events
+kill "$tail_pid" 2>/dev/null
+wait "$tail_pid" 2>/dev/null
+end
