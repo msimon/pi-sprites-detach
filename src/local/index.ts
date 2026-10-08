@@ -10,7 +10,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { CONFIG_FILE } from "./paths.ts";
 import { loadConfig } from "./config.ts";
 import { ensureSpriteBuild } from "./install.ts";
-import { listJobs } from "./jobs.ts";
+import { conversationName, listJobs } from "./jobs.ts";
+import { registerOutcomeRenderer } from "./outcome.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { describeOutcome, HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
@@ -21,7 +22,8 @@ const SUBCOMMANDS = ["sync", "status"] as const;
 export default function handoffLocal(pi: ExtensionAPI): void {
   if (process.env.HANDOFF_JOB_ID !== undefined) return;
 
-  const runtime = new HandoffRuntime();
+  const runtime = new HandoffRuntime(pi);
+  registerOutcomeRenderer(pi);
 
   pi.on("session_start", async (_event, ctx) => {
     try {
@@ -49,31 +51,38 @@ export default function handoffLocal(pi: ExtensionAPI): void {
       } catch (error: unknown) {
         ctx.ui.notify(`[pi-handoff] ${(error as Error).message}`, "error");
       } finally {
-        ctx.ui.setStatus(PROGRESS_KEY, undefined);
+        ctx.ui.setWidget(PROGRESS_KEY, undefined);
       }
     },
   });
 }
 
-const progressTo = (ctx: ExtensionCommandContext) => (text: string) => ctx.ui.setStatus(PROGRESS_KEY, `☁ ${text}`);
+/** The current step, on a line above the input while a command runs (not saved). */
+const progressTo =
+  (ctx: ExtensionCommandContext, title: string) =>
+  (text: string): void => {
+    const theme = ctx.ui.theme;
+    ctx.ui.setWidget(PROGRESS_KEY, [`${theme.fg("accent", `☁ ${title}:`)} ${theme.fg("muted", text)}`]);
+  };
 
 async function pushCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, prompt: string): Promise<void> {
-  const { job, synced } = await pushJob(ctx, prompt, progressTo(ctx));
+  const { job, synced } = await pushJob(ctx, prompt, progressTo(ctx, "Handing off"));
   const lines = [
-    `☁ Handed off as ${job.jobId} on ${job.sprite}: ${job.jobName}`,
+    `☁ Handoff started: job ${job.jobId} on Sprite ${job.sprite}`,
+    `Conversation: ${conversationName(job)}`,
     job.jobBranch === undefined
       ? "No git repo here: the job has the conversation only."
       : `Branch ${job.jobBranch} on origin${job.snapshot ? " (uncommitted work included as a snapshot commit)" : ""}.`,
-    "This session stays here and is unchanged. You will be notified when the job finishes or needs input.",
+    "This session stays here, unchanged. A message will appear here when the job finishes or needs input.",
   ];
-  if (synced.length > 0) lines.push(`Synced to the Sprite: ${synced.join(", ")}.`);
+  if (synced.length > 0) lines.push(`Synced first: ${synced.join(", ")}.`);
   ctx.ui.notify(lines.join("\n"), "info");
   await runtime.refreshStatusLine();
 }
 
 async function syncCommand(ctx: ExtensionCommandContext): Promise<void> {
   const { config, created } = await loadConfig();
-  const report = await syncSprite(config, config.sprite, progressTo(ctx));
+  const report = await syncSprite(config, config.sprite, progressTo(ctx, `Syncing ${config.sprite}`));
   const lines = [
     report.updated.length === 0 ? `☁ ${config.sprite} is up to date.` : `☁ Synced to ${config.sprite}: ${report.updated.join(", ")}.`,
   ];

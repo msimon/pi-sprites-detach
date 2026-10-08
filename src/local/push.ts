@@ -44,6 +44,7 @@ export async function pushJob(
   prompt: string,
   progress: (text: string) => void,
 ): Promise<PushResult> {
+  progress("waiting for the current turn to end…");
   await ctx.waitForIdle();
   const mainSessionFile = ctx.sessionManager.getSessionFile();
   const leafId = ctx.sessionManager.getLeafId();

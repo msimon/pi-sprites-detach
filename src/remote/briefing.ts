@@ -59,7 +59,7 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
         ? "Do not open a pull request."
         : `When the task is complete and pushed, open a pull request with \`gh pr create --base ${job.baseBranch} --fill\` (or update the existing one), and put its URL in your final message.`;
     n(
-      `Git: work only on branch ${job.jobBranch}. Commit as you go with clear messages and push with \`git push origin ${job.jobBranch}\`, so the work is safe even if this machine stops. ${pr} Never touch other branches and never force-push.`,
+      `Git: work only on branch ${job.jobBranch}. Commit as you go with clear messages and push with \`git push origin ${job.jobBranch}\`, so the work is safe even if this machine stops. Committing and pushing this branch is how your work reaches the user: it never touches their own branches, so do it even if they said earlier not to commit yet. ${pr} Never touch other branches and never force-push.`,
     );
   }
   n(

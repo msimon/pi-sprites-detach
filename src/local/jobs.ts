@@ -46,6 +46,12 @@ export interface LocalJob {
   error?: string;
 }
 
+/** The conversation's name without the ` [<jobId>]` suffix the job session carries. */
+export function conversationName(job: Pick<LocalJob, "jobId" | "jobName">): string {
+  const suffix = ` [${job.jobId}]`;
+  return job.jobName.endsWith(suffix) ? job.jobName.slice(0, -suffix.length) : job.jobName;
+}
+
 const jobFile = (jobId: string): string => join(JOBS_DIR, `${jobId}.json`);
 
 export async function readJob(jobId: string): Promise<LocalJob | undefined> {

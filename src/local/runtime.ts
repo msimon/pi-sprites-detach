@@ -6,10 +6,20 @@
 // no pi was watching. Polling is wall-clock free: a tick after a laptop sleep just
 // reads the current state, so a missed interval only delays the warning.
 
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { emitJson, spriteJson } from "./exec.ts";
-import { ACTIVE_STATES, claimNotification, type JobState, type LocalJob, listJobs, type Question, writeJob } from "./jobs.ts";
+import {
+  ACTIVE_STATES,
+  claimNotification,
+  conversationName,
+  type JobState,
+  type LocalJob,
+  listJobs,
+  type Question,
+  writeJob,
+} from "./jobs.ts";
 import { cmuxNotify } from "./notify.ts";
+import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel } from "./outcome.ts";
 import { REMOTE_STATE } from "./paths.ts";
 
 const POLL_MS = 45_000;
@@ -41,26 +51,33 @@ function oneLine(text: string, max = BODY_MAX): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
+/** One-line outcome, for `/handoff status` and the cmux notification. */
 export function describeOutcome(job: LocalJob): { label: string; body: string } {
+  const label = outcomeLabel(job.state);
   switch (job.state) {
     case "done":
-      return { label: "done", body: oneLine(job.lastAssistantText ?? "Finished.") };
+      return { label, body: oneLine(job.lastAssistantText ?? "Finished.") };
     case "needs_input":
-      return { label: "needs input", body: oneLine(job.questions?.[0]?.question ?? "The agent has a question.") };
+      return { label, body: oneLine(job.questions?.[0]?.question ?? "The agent has a question.") };
     case "error":
-      return { label: "failed", body: oneLine(job.error ?? "The run failed.") };
+      return { label, body: oneLine(job.error ?? "The run failed.") };
     case "aborted":
-      return { label: "aborted", body: "The run was stopped." };
+      return { label, body: "The run was stopped." };
     default:
-      return { label: job.state, body: "" };
+      return { label, body: "" };
   }
 }
 
 export class HandoffRuntime {
+  readonly #pi: ExtensionAPI;
   #ctx: ExtensionContext | undefined;
   #timer: ReturnType<typeof setInterval> | undefined;
   #ticking = false;
   readonly #surface = process.env.CMUX_SURFACE_ID || undefined;
+
+  constructor(pi: ExtensionAPI) {
+    this.#pi = pi;
+  }
 
   async start(ctx: ExtensionContext): Promise<void> {
     this.#ctx = ctx;
@@ -127,9 +144,19 @@ export class HandoffRuntime {
   async #notify(job: LocalJob): Promise<void> {
     if (!(await claimNotification(job))) return;
     const { label, body } = describeOutcome(job);
-    const where = job.jobBranch === undefined ? "" : `\nbranch ${job.jobBranch} on origin`;
-    this.#ctx?.ui.notify(`☁ ${job.jobId} ${label}: ${job.jobName}\n${body}${where}`, "warning");
-    if (job.surface !== undefined) await cmuxNotify(job.surface, `pi-handoff ${job.jobId} ${label}`, `${job.jobName}: ${body}`);
+    const ctx = this.#ctx;
+    if (ctx !== undefined) {
+      // The card belongs in the handed-off conversation. If this window shows another
+      // session, a card would be saved into that unrelated conversation: notice instead.
+      if (ctx.sessionManager.getSessionFile() === job.mainSessionFile) {
+        this.#pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job));
+      } else {
+        ctx.ui.notify(`☁ Job ${job.jobId} ${label}: ${conversationName(job)}\n${body}`, "info");
+      }
+    }
+    if (job.surface !== undefined) {
+      await cmuxNotify(job.surface, `pi-handoff: job ${job.jobId} ${label}`, `${conversationName(job)}: ${body}`);
+    }
   }
 
   async refreshStatusLine(): Promise<void> {
