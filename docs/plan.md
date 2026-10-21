@@ -82,7 +82,7 @@ pi has no install hook, so the local extension builds `~/.pi-handoff/sprite/` it
 
 ## State
 
-Local, one record per job at `~/.pi-handoff/jobs/<jobId>.json`:
+Local, one record per job at `~/.pi-handoff/jobs/<jobId>.json`. Job ids are `h` + a lowercase base-36 counter (h1 … h9, ha … hz, h10 …), reserved by creating the record exclusively; they stay short, sort in order, and never run out.
 
 ```json
 {

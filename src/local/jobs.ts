@@ -139,23 +139,36 @@ export async function listJobs(): Promise<LocalJob[]> {
   }
   const jobs: LocalJob[] = [];
   for (const name of names) {
-    if (!/^h\d+\.json$/.test(name)) continue;
+    if (!JOB_FILE.test(name)) continue;
     const job = await readJob(name.slice(0, -5));
     // A reserved id is `{}` until its handoff finishes pushing (reserveJobId): skip it.
     if (job !== undefined && typeof job.jobId === "string" && typeof job.state === "string") jobs.push(job);
   }
-  return jobs.sort((a, b) => Number(a.jobId.slice(1)) - Number(b.jobId.slice(1)));
+  return jobs.sort((a, b) => jobNumber(a.jobId) - jobNumber(b.jobId));
 }
 
-/** Reserve the next job id `h<n>` by creating its record exclusively. */
+/** A job record's file name: `h` + a lowercase base-36 counter. */
+const JOB_FILE = /^h([0-9a-z]+)\.json$/;
+
+const jobNumber = (jobId: string): number => Number.parseInt(jobId.slice(1), 36);
+
+/**
+ * Reserve the next job id by creating its record exclusively: `h` + a base-36 counter
+ * (h1 … h9, ha … hz, h10 …), so ids stay short and in order. h1–h9 read the same as
+ * the old decimal ids.
+ */
 export async function reserveJobId(): Promise<string> {
   await mkdir(JOBS_DIR, { recursive: true });
-  const taken = (await readdir(JOBS_DIR)).map((n) => /^h(\d+)\.json$/.exec(n)?.[1]).filter((n) => n !== undefined);
-  let n = Math.max(0, ...taken.map(Number)) + 1;
+  const taken = (await readdir(JOBS_DIR)).flatMap((name) => {
+    const match = JOB_FILE.exec(name);
+    return match === null ? [] : [Number.parseInt(match[1] as string, 36)];
+  });
+  let n = Math.max(0, ...taken) + 1;
   for (;;) {
+    const jobId = `h${n.toString(36)}`;
     try {
-      await writeFile(jobFile(`h${n}`), "{}\n", { flag: "wx" });
-      return `h${n}`;
+      await writeFile(jobFile(jobId), "{}\n", { flag: "wx" });
+      return jobId;
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       n++;

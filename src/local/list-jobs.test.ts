@@ -22,3 +22,28 @@ test("listJobs skips a reserved id whose handoff has not written its record yet"
     ["h1"],
   );
 });
+
+test("job ids count on in base 36 and list in order", async () => {
+  const dir = join(home, ".pi-handoff", "jobs");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const record = (id: string): void => {
+    writeFileSync(join(dir, `${id}.json`), `${JSON.stringify({ jobId: id, state: "done" })}\n`);
+  };
+  record("h8");
+  assert.equal(await reserveJobId(), "h9");
+  record("h9");
+  assert.equal(await reserveJobId(), "ha");
+  record("hz");
+  assert.equal(await reserveJobId(), "h10");
+  record("h10");
+  record("ha");
+  // Not job records: ignored by both.
+  writeFileSync(join(dir, "hX.json"), "{}\n");
+  writeFileSync(join(dir, "h-1.json"), "{}\n");
+  assert.equal(await reserveJobId(), "h11");
+  assert.deepEqual(
+    (await listJobs()).map((j) => j.jobId),
+    ["h8", "h9", "ha", "hz", "h10"],
+  );
+});

@@ -63,7 +63,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       "List the user's handoff jobs (conversations handed off to a cloud machine), or show one in full: its state, branch, question and last message. Use it before replying to, pulling or aborting a job.",
     promptSnippet: "handoff_status: list handoff jobs or show one in full",
     parameters: Type.Object({
-      job: Type.Optional(Type.String({ description: "A job id such as h3, to show in full" })),
+      job: Type.Optional(Type.String({ description: "A job id such as h3 or h1k, to show in full" })),
       filter: Type.Optional(
         Type.String({ description: "all (default; leaves out pulled jobs), running, joined, needs-input, done, failed, aborted or pulled; ignored with job" }),
       ),
@@ -93,7 +93,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       "Start another run of a finished job (done, needs input, failed or aborted) with a message: answer its question, or ask for more work. It runs on the cloud machine; the user gets a card when it ends. Not for a running or pulled job.",
     promptSnippet: "handoff_reply: answer a finished handoff job or ask it for more work",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3" }),
+      job: Type.String({ description: "The job id, such as h3 or h1k" }),
       text: Type.String({ description: "The message for the job: the answer, or the next task" }),
     }),
     executionMode: "sequential",
@@ -113,7 +113,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       "Bring a finished job back: its branch is fetched, its conversation is saved on the laptop, the cloud machine is cleaned up, and you get a summary of what it did, its commits and its final message to continue from. The code stays on the job's branch: do not merge or copy it unless the user asks. On a job already pulled it returns the summary again. The user is asked to confirm.",
     promptSnippet: "handoff_pull: bring a finished job back and read what it did",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3" }),
+      job: Type.String({ description: "The job id, such as h3 or h1k" }),
       abort: Type.Optional(Type.Boolean({ description: "Stop a run in progress first (only if the user wants the job stopped)" })),
       worktree: Type.Optional(Type.Boolean({ description: "Also check the job branch out in a local worktree" })),
     }),
@@ -152,7 +152,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       "Open a terminal for the user on a finished job, with interactive pi on its conversation on the cloud machine (a split next to this window). The user types there; you do not. Not for a running job unless abort is set, which stops its run (the user is asked).",
     promptSnippet: "handoff_join: open the user a live session on a finished job",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3" }),
+      job: Type.String({ description: "The job id, such as h3 or h1k" }),
       abort: Type.Optional(Type.Boolean({ description: "Stop the job's run in progress first" })),
     }),
     executionMode: "sequential",
@@ -187,7 +187,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     description:
       "Stop a job's run in progress (or a joined session). The work so far stays on the cloud machine and on its branch; the job can be replied to or pulled later. The user is asked to confirm.",
     promptSnippet: "handoff_abort: stop a running handoff job",
-    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3" }) }),
+    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3 or h1k" }) }),
     executionMode: "sequential",
     async execute(_id, params, _signal, onUpdate, ctx) {
       const job = await jobOrThrow(params.job);
@@ -210,7 +210,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     description:
       "Remove what pulling a job left on the laptop: its worktree, its local branch and the fetched origin branch. Only for a pulled job whose work is merged into its base branch and whose worktree has no uncommitted changes; otherwise it refuses and says why. It never deletes anything on origin and cannot discard unmerged work: only the user can, with the /handoff cleanup command and its options. The user is asked to confirm.",
     promptSnippet: "handoff_cleanup: remove a pulled, merged job's worktree and branch",
-    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3" }) }),
+    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3 or h1k" }) }),
     executionMode: "sequential",
     async execute(_id, params, _signal, onUpdate, ctx) {
       const job = await jobOrThrow(params.job);
