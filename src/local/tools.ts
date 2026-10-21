@@ -14,6 +14,7 @@ import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { outcomeLabel } from "./outcome.ts";
 import { pullJob, StillRunningError, stopJob } from "./pull.ts";
 import { pushJob } from "./push.ts";
+import { HandoffCancelledError } from "./git.ts";
 import { canReply, replyJob } from "./reply.ts";
 import type { HandoffRuntime } from "./runtime.ts";
 import { lastCompletedLeaf } from "./session.ts";
@@ -266,10 +267,26 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
         `The agent wants to run this on a cloud machine while you are away. Your uncommitted changes go to a new branch on origin.\n\nIts prompt:\n${preview}`,
       );
       if (!ok) return text(DECLINED);
-      const { job } = await pushJob(ctx, params.prompt, progressTo(onUpdate), { fromLeafId: leaf });
+      let pushed: Awaited<ReturnType<typeof pushJob>>;
+      try {
+        pushed = await pushJob(
+          { sessionManager: ctx.sessionManager, ask: (title, options) => ctx.ui.select(title, options) },
+          params.prompt,
+          progressTo(onUpdate),
+          { fromLeafId: leaf },
+        );
+      } catch (error: unknown) {
+        if (error instanceof HandoffCancelledError) return text(`${error.message} Tell the user; do not hand off again unless they ask.`);
+        throw error;
+      }
+      const { job, notes } = pushed;
       await runtime.refreshStatusLine();
       return text(
-        `Handed off as job ${job.jobId}${job.jobBranch === undefined ? "" : ` on branch ${job.jobBranch}`}. It runs on the cloud machine now; the user gets a card in this window when it finishes or needs input. Tell the user, and stop: do not continue this work here.`,
+        [
+          `Handed off as job ${job.jobId}${job.jobBranch === undefined ? "" : ` on branch ${job.jobBranch}`}.`,
+          ...notes,
+          "It runs on the cloud machine now; the user gets a card in this window when it finishes or needs input. Tell the user, and stop: do not continue this work here.",
+        ].join(" "),
       );
     },
   });

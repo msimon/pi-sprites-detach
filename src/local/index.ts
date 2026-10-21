@@ -49,6 +49,7 @@ import { type PullOptions, pullJob, StillRunningError, stopJob } from "./pull.ts
 import { canReply, replyJob } from "./reply.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
+import { HandoffCancelledError } from "./git.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 import { registerHandoffTools } from "./tools.ts";
@@ -232,13 +233,30 @@ const progressTo =
   };
 
 async function pushCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, prompt: string): Promise<void> {
-  const { job, synced } = await pushJob(ctx, prompt, progressTo(ctx, "Handing off"));
+  let pushed: Awaited<ReturnType<typeof pushJob>>;
+  try {
+    pushed = await pushJob(
+      {
+        sessionManager: ctx.sessionManager,
+        waitForIdle: () => ctx.waitForIdle(),
+        ...(ctx.hasUI ? { ask: (title: string, options: string[]) => ctx.ui.select(title, options) } : {}),
+      },
+      prompt,
+      progressTo(ctx, "Handing off"),
+    );
+  } catch (error: unknown) {
+    if (!(error instanceof HandoffCancelledError)) throw error;
+    ctx.ui.notify(`☁ ${error.message}`, "info");
+    return;
+  }
+  const { job, synced, notes } = pushed;
   const lines = [
     `☁ Handoff started: job ${job.jobId} on Sprite ${job.sprite}`,
     `Conversation: ${conversationName(job)}`,
     job.jobBranch === undefined
       ? "No git repo here: the job has the conversation only."
       : `Branch ${job.jobBranch} on origin${job.snapshotSha !== undefined ? " (uncommitted work included as a snapshot commit)" : ""}.`,
+    ...notes,
     "This session stays here, unchanged. A message will appear here when the job finishes or needs input.",
   ];
   if (synced.length > 0) lines.push(`Synced first: ${synced.join(", ")}.`);

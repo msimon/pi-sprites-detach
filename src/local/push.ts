@@ -8,7 +8,7 @@ import type { RemoteJob } from "../remote/job.ts";
 import { loadConfig, projectFilePatterns } from "./config.ts";
 import { emitJson, run, runOk, spriteJson } from "./exec.ts";
 import { missingPackageManager } from "./lockfiles.ts";
-import { detectGit, ignoredProjectFiles, pushNewJobBranch, snapshotCommit } from "./git.ts";
+import { type BaseDecision, detectGit, ignoredProjectFiles, prepareBase, pushNewJobBranch, snapshotCommit } from "./git.ts";
 import { type LocalJob, reserveJobId, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE, SPRITE_HOME } from "./paths.ts";
 import { cloneForJob } from "./session.ts";
@@ -39,12 +39,16 @@ export interface PushResult {
   job: LocalJob;
   /** What config sync updated on the way. */
   synced: string[];
+  /** For the start message: the base branch pushed, or why there is no pull request. */
+  notes: string[];
 }
 
 /** What a handoff needs of pi: the command context has it all, a tool's has no waitForIdle. */
 export interface PushContext {
   sessionManager: ExtensionContext["sessionManager"];
   waitForIdle?: () => Promise<void>;
+  /** Ask the user to pick one option; undefined when there is no UI to ask on. */
+  ask?: (title: string, options: string[]) => Promise<string | undefined>;
 }
 
 /**
@@ -77,12 +81,18 @@ export async function pushJob(
   // Before anything is synced or pushed. Only git repos: a non-git folder's files do
   // not travel, so it needs no package manager on the Sprite.
   const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd: folder });
+  let base: BaseDecision | undefined;
   if (top.code === 0) {
     const missing = missingPackageManager(folder, top.stdout.trim(), config.remote.tools);
     if (missing !== undefined) {
       throw new Error(
         `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-handoff/config.json, and run /handoff again.`,
       );
+    }
+    // A PR needs its base on origin with the local commits (git protocol: base branch).
+    if (config.pr === "auto") {
+      const info = await detectGit(folder);
+      if (info?.branch !== undefined) base = await prepareBase(info, info.branch, ctx.ask, progress);
     }
   }
 
@@ -120,7 +130,7 @@ export async function pushJob(
         files.push([join(tmp, "files.tgz"), `${upload}/files.tgz`]);
       }
 
-      const pr = git.branch === undefined ? ("never" as const) : config.pr;
+      const pr = git.branch === undefined ? ("never" as const) : (base?.pr ?? config.pr);
       remote = {
         jobId,
         jobName,
@@ -184,7 +194,7 @@ export async function pushJob(
       updatedAt: now,
     };
     await writeJob(job);
-    return { job, synced: report.updated };
+    return { job, synced: report.updated, notes: base?.note === undefined ? [] : [base.note] };
   } catch (error: unknown) {
     // Keep the reserved id visible as a failed job rather than a blank record.
     await writeJob({

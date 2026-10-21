@@ -68,33 +68,113 @@ export async function detectGit(folder: string): Promise<GitInfo | undefined> {
  * Returns HEAD when there is nothing to commit.
  */
 export async function snapshotCommit(info: GitInfo): Promise<{ sha: string; snapshot: boolean }> {
+  const tree = await worktreeTree(info.repoRoot);
+  const headTree = await git(info.repoRoot, ["rev-parse", "HEAD^{tree}"]);
+  if (tree === headTree) return { sha: info.head, snapshot: false };
+  const sha = await git(info.repoRoot, [
+    "commit-tree",
+    tree,
+    "-p",
+    info.head,
+    "-m",
+    "pi-handoff: snapshot of uncommitted work\n\nCommitted by /handoff so the work travels with the job.",
+  ]);
+  return { sha, snapshot: true };
+}
+
+/**
+ * The working tree as a tree object: tracked changes and untracked, non-ignored
+ * files, written through a temporary index so the real one is untouched (S8).
+ */
+export async function worktreeTree(repoRoot: string): Promise<string> {
   const tmp = await mkdtemp(join(tmpdir(), "pi-handoff-index-"));
   try {
-    const indexPath = await git(info.repoRoot, ["rev-parse", "--git-path", "index"]);
-    const realIndex = isAbsolute(indexPath) ? indexPath : join(info.repoRoot, indexPath);
     const tmpIndex = join(tmp, "index");
     try {
-      await copyFile(realIndex, tmpIndex);
+      await copyFile(await indexFile(repoRoot), tmpIndex);
     } catch {
       // No index yet: git builds one from scratch.
     }
     const env = { GIT_INDEX_FILE: tmpIndex };
-    await git(info.repoRoot, ["add", "-A"], env);
-    const tree = await git(info.repoRoot, ["write-tree"], env);
-    const headTree = await git(info.repoRoot, ["rev-parse", "HEAD^{tree}"]);
-    if (tree === headTree) return { sha: info.head, snapshot: false };
-    const sha = await git(info.repoRoot, [
-      "commit-tree",
-      tree,
-      "-p",
-      info.head,
-      "-m",
-      "pi-handoff: snapshot of uncommitted work\n\nCommitted by /handoff so the work travels with the job.",
-    ]);
-    return { sha, snapshot: true };
+    await git(repoRoot, ["add", "-A"], env);
+    return await git(repoRoot, ["write-tree"], env);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+/** The repo's (or linked worktree's) real index file. */
+export async function indexFile(repoRoot: string): Promise<string> {
+  const path = await git(repoRoot, ["rev-parse", "--git-path", "index"]);
+  return isAbsolute(path) ? path : join(repoRoot, path);
+}
+
+/** Where origin's copy of a branch stands against local HEAD. */
+export type OriginBranchState = "missing" | "same" | "behind" | "ahead";
+
+/**
+ * `behind`: origin's tip is in local history, so a plain push brings it up to date.
+ * `ahead`: origin has commits local history lacks (ahead or diverged); not even
+ * fetched means not in local history either.
+ */
+export async function originBranchState(info: GitInfo, branch: string): Promise<OriginBranchState> {
+  const ref = `refs/heads/${branch}`;
+  const out = await git(info.repoRoot, ["ls-remote", "--heads", "origin", ref]);
+  const sha = out
+    .split("\n")
+    .find((line) => line.endsWith(`\t${ref}`))
+    ?.split("\t")[0];
+  if (sha === undefined) return "missing";
+  if (sha === info.head) return "same";
+  const ancestor = await run("git", ["merge-base", "--is-ancestor", sha, info.head], { cwd: info.repoRoot });
+  return ancestor.code === 0 ? "behind" : "ahead";
+}
+
+export const CONTINUE_WITHOUT_PR = "Continue without a pull request";
+export const CANCEL_TO_PULL = "Cancel: I'll git pull first";
+
+export interface BaseDecision {
+  pr: "auto" | "never";
+  /** Said in the start message: why there is no PR, or that the base was pushed. */
+  note?: string;
+}
+
+/** The user stopped the handoff (origin has commits the local branch lacks). */
+export class HandoffCancelledError extends Error {}
+
+/**
+ * For a job that will open a pull request: make sure its base branch is on origin
+ * with the local commits, so the PR has the right base. Pushes HEAD when origin's
+ * branch is missing or behind (hooks run: it is the user's real branch; never forced).
+ * A failed push fails the handoff. When origin has commits the local branch lacks, a
+ * PR would mix them in: `ask` offers to continue without one or to cancel; with no
+ * way to ask, the job goes without a PR.
+ */
+export async function prepareBase(
+  info: GitInfo,
+  branch: string,
+  ask: ((title: string, options: string[]) => Promise<string | undefined>) | undefined,
+  progress: (text: string) => void,
+): Promise<BaseDecision> {
+  progress(`checking ${branch} on origin…`);
+  const state = await originBranchState(info, branch);
+  if (state === "same") return { pr: "auto" };
+  if (state === "ahead") {
+    const why = `origin/${branch} has commits your local ${branch} does not, so a pull request from this job would mix them in`;
+    if (ask === undefined) return { pr: "never", note: `No pull request: ${why}. The work comes back with /handoff pull.` };
+    const choice = await ask(`${why}.`, [CONTINUE_WITHOUT_PR, CANCEL_TO_PULL]);
+    if (choice === CONTINUE_WITHOUT_PR) return { pr: "never", note: `No pull request: ${why}.` };
+    throw new HandoffCancelledError(`Handoff cancelled. Bring ${branch} up to date (git pull), then hand off again.`);
+  }
+  progress(`pushing ${branch} to origin…`);
+  const ref = `refs/heads/${branch}`;
+  const result = await run("git", ["push", "origin", `${info.head}:${ref}`], { cwd: info.repoRoot, timeoutMs: 600_000 });
+  if (result.code !== 0) {
+    throw new Error(
+      `the job opens a pull request against ${branch}, which needs ${branch} on origin, and pushing it failed: ${(result.stderr || result.stdout).trim()}`,
+    );
+  }
+  return { pr: "auto", note: `${state === "missing" ? "Pushed" : "Updated"} ${branch} on origin, the pull request's base.` };
 }
 
 /** The highest n of the `<base>-handoff-<n>` branches on origin, 0 when none. */
