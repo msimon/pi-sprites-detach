@@ -582,14 +582,16 @@ async function runJoin(
 
 /** /handoff reply [job] [text]: without text, ask for it. */
 async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, args: string): Promise<void> {
-  const named = /^(h\d+)(?:\s+([\s\S]*))?$/.exec(args);
-  const job = named
-    ? await readJob(named[1] as string)
-    : await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /handoff status lists them all");
-  if (job === undefined) {
-    if (named) throw new Error(`no job ${named[1]}`);
-    return;
-  }
+  // Ids are h + base 36, so a first word like "hey" is id-shaped: it names a job only
+  // if that job exists; otherwise it is the start of the text.
+  const first = /^(h[0-9a-z]+)(?:\s+([\s\S]*))?$/.exec(args);
+  const firstJob = first ? await readJob(first[1] as string) : undefined;
+  if (first && firstJob === undefined && /^h\d+$/.test(first[1] as string)) throw new Error(`no job ${first[1]}`);
+  const named = firstJob === undefined ? null : first;
+  const job =
+    firstJob ??
+    (await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /handoff status lists them all"));
+  if (job === undefined) return;
   if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
   if (!canReply(job)) {
     throw new Error(
