@@ -16,6 +16,7 @@ import {
 } from "./jobs.ts";
 import { canCleanup } from "./cleanup.ts";
 import { outcomeBody, outcomeLabel } from "./outcome.ts";
+import { needsWayBack } from "./wayback.ts";
 
 /**
  * Ctrl+<letter> jumps to a filter; the same key again goes back to all. Not Ctrl+J for
@@ -101,6 +102,7 @@ export type JobAction =
   | "abort"
   | "open"
   | "here"
+  | "bringBack"
   | "cleanup";
 
 export const ACTION_LABELS: Record<JobAction, string> = {
@@ -114,6 +116,7 @@ export const ACTION_LABELS: Record<JobAction, string> = {
   abort: "Abort the run",
   open: "Open its conversation",
   here: "Bring its context into this conversation",
+  bringBack: "Bring its work into the folder again (fast-forward)",
   cleanup: "Clean up: remove its worktree and branch (merged work only)",
 };
 
@@ -132,6 +135,7 @@ export function jobActions(job: LocalJob): JobAction[] {
       return ["join", "abort"];
     case "pulled":
       return [
+        ...(needsWayBack(job) ? (["bringBack"] as const) : []),
         ...(job.pulledSessionFile === undefined ? [] : (["open", "here"] as const)),
         ...(canCleanup(job) ? (["cleanup"] as const) : []),
       ];

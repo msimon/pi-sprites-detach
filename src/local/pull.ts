@@ -5,8 +5,13 @@
 // 2. The job's session file is downloaded into the original folder's session dir,
 //    with the return briefing appended, so it shows in /resume there.
 // 3. Git: the job branch is fetched (origin/<jobBranch>); --worktree checks it out in
-//    a local worktree.
+//    a local worktree. Otherwise the work comes back by its way back (wayback.ts): the
+//    job's pull request, or a fast-forward of the folder's branch. That happens before
+//    the session is saved, so its return briefing says where the work is.
 // 4. Only then is the job removed from the Sprite (handoff-clean) and marked pulled.
+//
+// A way back that could not happen yet (`pending`) is retried by /handoff pull <job>
+// on the pulled job (retryWayBack), without the Sprite.
 
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -15,6 +20,7 @@ import { basename, dirname, join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { run, runOk, spriteJson, spritePull } from "./exec.ts";
 import { detectGit } from "./git.ts";
+import { bringWorkBack, needsWayBack, type WayBack } from "./wayback.ts";
 import { type LocalJob, writeJob } from "./jobs.ts";
 import { RETURN_MESSAGE, type ReturnDetails } from "./outcome.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE, WORKTREES_DIR } from "./paths.ts";
@@ -34,6 +40,8 @@ export interface PullResult {
   snapshot: boolean;
   /** Set when the Sprite could not be cleaned up; the pull itself succeeded. */
   cleanupError?: string;
+  /** Git: how the work came back. */
+  wayBack?: WayBack;
 }
 
 /** A run is in progress and --abort was not given. */
@@ -85,13 +93,20 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     await spritePull(job.sprite, `${REMOTE_STATE}/${job.jobId}/session.jsonl`, downloaded);
 
     let worktree: string | undefined;
+    let wayBack: WayBack | undefined;
     if (job.protocol === "git" && job.jobBranch !== undefined) {
       progress(`fetching ${job.jobBranch}…`);
       worktree = await fetchJobBranch(job, job.jobBranch, options.worktree);
+      if (worktree === undefined) {
+        progress("bringing the work back…");
+        wayBack = await safeWayBack(current);
+      } else {
+        wayBack = { kind: "worktree", where: worktree, text: `The work is on ${job.jobBranch}, checked out in the worktree ${worktree}.` };
+      }
     }
 
     progress("saving the conversation…");
-    const sessionFile = await importSession(downloaded, job, worktree);
+    const sessionFile = await importSession(downloaded, job, worktree, wayBack);
 
     progress("cleaning up the Sprite…");
     let cleanupError: string | undefined;
@@ -107,6 +122,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
       updatedAt: new Date().toISOString(),
       pulledSessionFile: sessionFile,
       ...(worktree === undefined ? {} : { worktree }),
+      ...wayBackFields(wayBack),
       // The status poll retries it (HandoffRuntime.poll).
       ...(cleanupError === undefined ? {} : { cleanupPending: true }),
     };
@@ -116,6 +132,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
       sessionFile,
       snapshot: prepared.snapshot !== null && prepared.snapshot !== undefined,
       ...(cleanupError === undefined ? {} : { cleanupError }),
+      ...(wayBack === undefined ? {} : { wayBack }),
     };
   } finally {
     await rm(tmp, { recursive: true, force: true });
@@ -143,12 +160,60 @@ async function fetchJobBranch(job: LocalJob, branch: string, withWorktree: boole
   return path;
 }
 
+/** bringWorkBack, but never throws: an unexpected failure is a way back to retry. */
+async function safeWayBack(job: LocalJob): Promise<WayBack> {
+  try {
+    return await bringWorkBack(job);
+  } catch (error: unknown) {
+    return {
+      kind: "pending",
+      where: `origin/${job.jobBranch}`,
+      text: `Could not bring the work back into ${job.folder} (${(error as Error).message}): run /handoff pull ${job.jobId} again, or merge origin/${job.jobBranch} yourself.`,
+    };
+  }
+}
+
+/** What a way back records on the job. A fast-forward that deleted the branch left nothing to clean up. */
+function wayBackFields(wayBack: WayBack | undefined): Partial<LocalJob> {
+  if (wayBack === undefined) return {};
+  const fields: Partial<LocalJob> = { wayBack: wayBack.kind, wayBackText: wayBack.text };
+  if (wayBack.jobHead !== undefined) fields.jobHead = wayBack.jobHead;
+  if (wayBack.kind === "fast-forwarded" && wayBack.branchDeleted === true) fields.cleanedAt = new Date().toISOString();
+  return fields;
+}
+
+/**
+ * Try the way back again for a pulled job whose way back is pending (the folder was
+ * on another branch, edits conflicted, gh failed…). Nothing on the Sprite: its work
+ * is on origin. A change is added to the job's conversation, so it is not stale there.
+ */
+export async function retryWayBack(job: LocalJob, progress: (text: string) => void): Promise<{ job: LocalJob; wayBack: WayBack }> {
+  const branch = job.jobBranch;
+  if (!needsWayBack(job) || branch === undefined) throw new Error(`${job.jobId} has no work left to bring back`);
+  progress(`fetching ${branch}…`);
+  await fetchJobBranch(job, branch, false);
+  progress("bringing the work back…");
+  const wayBack = await safeWayBack(job);
+  const updated: LocalJob = { ...job, ...wayBackFields(wayBack), updatedAt: new Date().toISOString() };
+  await writeJob(updated);
+  if (wayBack.kind !== "pending" && job.pulledSessionFile !== undefined && existsSync(job.pulledSessionFile)) {
+    const details: ReturnDetails = { jobId: job.jobId, jobBranch: branch, where: wayBack.where };
+    SessionManager.open(job.pulledSessionFile).appendCustomMessageEntry(
+      RETURN_MESSAGE,
+      `[pi-handoff] Update on the job's work: ${workSentence(updated, undefined, wayBack)}`,
+      true,
+      details,
+    );
+  }
+  return { job: updated, wayBack };
+}
+
 /**
  * Save the downloaded session in the original folder's session dir, named the way
  * pi names its own (`<header timestamp>_<id>.jsonl`), with its cwd set to the folder
  * (or the worktree) and the return briefing appended.
  */
-async function importSession(downloaded: string, job: LocalJob, worktree: string | undefined): Promise<string> {
+async function importSession(downloaded: string, job: LocalJob, worktree: string | undefined, wayBack: WayBack | undefined): Promise<string> {
   const text = await readFile(downloaded, "utf8");
   const newline = text.indexOf("\n");
   type Header = { type?: string; id?: string; timestamp?: string; cwd?: string };
@@ -170,29 +235,43 @@ async function importSession(downloaded: string, job: LocalJob, worktree: string
   await writeFile(partial, `${JSON.stringify(header)}\n${newline === -1 ? "" : text.slice(newline + 1)}`);
   await rename(partial, target);
 
-  const details: ReturnDetails = {
-    jobId: job.jobId,
-    ...(job.jobBranch === undefined ? {} : { jobBranch: job.jobBranch }),
-    ...(worktree === undefined ? {} : { worktree }),
-  };
-  SessionManager.open(target).appendCustomMessageEntry(RETURN_MESSAGE, returnBriefing(job, worktree), true, details);
+  const details: ReturnDetails = { jobId: job.jobId };
+  if (job.jobBranch !== undefined) details.jobBranch = job.jobBranch;
+  if (worktree !== undefined) details.worktree = worktree;
+  if (wayBack !== undefined) details.where = wayBack.where;
+  SessionManager.open(target).appendCustomMessageEntry(RETURN_MESSAGE, returnBriefing(job, worktree, wayBack), true, details);
   return target;
 }
 
 /** Appended to the job's conversation on pull: where things are now. Sent to the model. */
-export function returnBriefing(job: LocalJob, worktree: string | undefined): string {
+export function returnBriefing(job: LocalJob, worktree: string | undefined, wayBack?: WayBack): string {
   const parts = [
     `[pi-handoff] This conversation is back on the user's laptop (macOS). The turns since the handoff ran unattended on a cloud machine as handoff job ${job.jobId}; that machine's copy of the files is gone.`,
   ];
   if (job.protocol === "git" && job.jobBranch !== undefined) {
-    parts.push(
-      worktree === undefined
-        ? `The job's work is on branch ${job.jobBranch} on origin, fetched here as origin/${job.jobBranch}. The working directory ${job.folder} is still on ${job.baseBranch ?? "its own branch"} and does not have that work yet; before changing files, ask the user whether to continue on ${job.jobBranch} or here.`
-        : `The job's work is on branch ${job.jobBranch}, checked out in the local worktree ${worktree}, which is the working directory now. The original folder ${job.folder} is unchanged.`,
-    );
+    parts.push(workSentence(job, worktree, wayBack));
   } else {
     parts.push("Files created on the cloud machine were not brought back; only this conversation was.");
   }
   parts.push("The laptop's tools, skills and credentials are available again, and the user is here to answer questions.");
   return parts.join(" ");
+}
+
+/** Where a git job's work is now, for the model. */
+function workSentence(job: LocalJob, worktree: string | undefined, wayBack: WayBack | undefined): string {
+  const branch = job.jobBranch;
+  if (worktree !== undefined) {
+    return `The job's work is on branch ${branch}, checked out in the local worktree ${worktree}, which is the working directory now. The original folder ${job.folder} is unchanged.`;
+  }
+  switch (wayBack?.kind) {
+    case "fast-forwarded":
+      return `The job's work is in the working directory ${job.folder} now: ${wayBack.text}`;
+    case "pr":
+      return `${wayBack.text} Until then the working directory ${job.folder} does not have the work.`;
+    case "pending":
+    case "manual":
+      return `The job's work is on branch ${branch} on origin, fetched here as origin/${branch}; the working directory ${job.folder} does not have it. ${wayBack.text} Do not merge it yourself unless the user asks.`;
+    default:
+      return `The job's work is on branch ${branch} on origin, fetched here as origin/${branch}. The working directory ${job.folder} is still on ${job.baseBranch ?? "its own branch"} and does not have that work yet; before changing files, ask the user whether to continue on ${branch} or here.`;
+  }
 }

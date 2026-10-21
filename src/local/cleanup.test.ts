@@ -51,6 +51,18 @@ test("unmerged work is refused, and removed with discard", async () => {
   }
 });
 
+test("work in the local base only (pull's fast-forward, not pushed yet) counts as merged", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  try {
+    const { work, wt, job } = setup(root, { merged: false });
+    g(work, "merge", "-q", "--ff-only", "main-handoff-1");
+    await cleanupJob(job, { discard: false, remote: false }, quiet);
+    assert.equal(existsSync(wt), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("uncommitted changes in the worktree are refused, even when the work is merged", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
   try {

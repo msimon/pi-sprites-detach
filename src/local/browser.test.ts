@@ -58,6 +58,9 @@ test("actions follow the state", () => {
   const git = { protocol: "git", jobBranch: "main-handoff-1", pulledSessionFile: "/tmp/x.jsonl" } as const;
   assert.deepEqual(jobActions(job("h1", "pulled", git)), ["open", "here", "cleanup"]);
   assert.deepEqual(jobActions(job("h1", "pulled", { ...git, cleanedAt: "2026-10-08" })), ["open", "here"]);
+  // A pulled job whose work could not come back yet offers to try again, first.
+  assert.deepEqual(jobActions(job("h1", "pulled", { ...git, wayBack: "pending" })), ["bringBack", "open", "here", "cleanup"]);
+  assert.deepEqual(jobActions(job("h1", "pulled", { ...git, wayBack: "manual" })), ["open", "here", "cleanup"]);
 });
 
 test("plain list follows the filter", () => {

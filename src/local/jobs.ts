@@ -105,6 +105,14 @@ export interface LocalJob {
   /** Set by /handoff pull: the job's conversation on the laptop, and the local worktree. */
   pulledSessionFile?: string;
   worktree?: string;
+  /**
+   * Set by pull (git): how the work came back. `pending` can be retried with /handoff
+   * pull <job>; `manual` means the user merges it. `wayBackText` says which and why.
+   */
+  wayBack?: "fast-forwarded" | "pr" | "worktree" | "pending" | "manual";
+  wayBackText?: string;
+  /** The job branch's tip at pull, so its commits stay readable once the branch is deleted. */
+  jobHead?: string;
   /** The Sprite cleanup failed at pull; the status poll retries it until it succeeds. */
   cleanupPending?: boolean;
   /** Set by /handoff cleanup: the worktree and branches a pull left on the laptop are gone. */

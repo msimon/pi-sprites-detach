@@ -82,7 +82,12 @@ export async function planCleanup(job: LocalJob, options: Pick<CleanupOptions, "
   if (tip !== undefined && base !== undefined) {
     // The base on origin may have moved since (the pull request was merged): bring it up to date.
     await git(repoRoot, ["fetch", "--no-tags", "origin", `+refs/heads/${base}:refs/remotes/origin/${base}`], 120_000);
-    if (await exists(`refs/remotes/origin/${base}`)) {
+    // In the local base counts too: pull's fast-forward puts it there before any push.
+    const inLocalBase =
+      (await exists(`refs/heads/${base}`)) && (await git(repoRoot, ["merge-base", "--is-ancestor", tip, `refs/heads/${base}`])).code === 0;
+    if (inLocalBase) {
+      merged = true;
+    } else if (await exists(`refs/remotes/origin/${base}`)) {
       merged = (await git(repoRoot, ["merge-base", "--is-ancestor", tip, `refs/remotes/origin/${base}`])).code === 0;
       if (!merged) {
         const count = await git(repoRoot, ["rev-list", "--count", `refs/remotes/origin/${base}..${tip}`]);

@@ -20,6 +20,8 @@ export interface ReturnDetails {
   jobId: string;
   jobBranch?: string;
   worktree?: string;
+  /** Where the work is now, in a few words (pull's way back). */
+  where?: string;
 }
 
 export interface ContextDetails {
@@ -147,7 +149,7 @@ export function registerOutcomeRenderer(pi: ExtensionAPI): void {
   );
   pi.registerMessageRenderer<ReturnDetails>(RETURN_MESSAGE, (message, { expanded }, theme) => {
     const d = message.details;
-    const where = d?.worktree ?? (d?.jobBranch === undefined ? "conversation only" : `origin/${d.jobBranch}`);
+    const where = d?.where ?? d?.worktree ?? (d?.jobBranch === undefined ? "conversation only" : `origin/${d.jobBranch}`);
     const line = `${theme.fg("accent", "☁ Back from the Sprite")}${theme.fg("muted", ` · job ${d?.jobId ?? "?"} · ${where}`)}`;
     if (!expanded) return new Text(line, 1, 0);
     const text = typeof message.content === "string" ? message.content : "";

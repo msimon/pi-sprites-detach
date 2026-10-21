@@ -45,7 +45,8 @@ import {
 import { bringContextHere } from "./here.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel, registerOutcomeRenderer } from "./outcome.ts";
 import { CONFIG_FILE } from "./paths.ts";
-import { type PullOptions, pullJob, StillRunningError, stopJob } from "./pull.ts";
+import { type PullOptions, pullJob, retryWayBack, StillRunningError, stopJob } from "./pull.ts";
+import { needsWayBack } from "./wayback.ts";
 import { canReply, replyJob } from "./reply.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
@@ -85,8 +86,11 @@ const PULL_FLAGS = {
 /** Filters as typed after `status` (dashes instead of underscores). */
 const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 
-/** Jobs /handoff pull can take without --abort: their run has ended. Same as reply. */
-const isPullable = canReply;
+/**
+ * Jobs /handoff pull can take without --abort: their run has ended (same as reply),
+ * or they are pulled and their work still waits to come back (a retry).
+ */
+const isPullable = (job: LocalJob): boolean => canReply(job) || needsWayBack(job);
 
 export default function handoffLocal(pi: ExtensionAPI): void {
   if (process.env.HANDOFF_JOB_ID !== undefined) return;
@@ -171,7 +175,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         const typed = words.pop() ?? "";
         const head = ["pull", ...words].join(" ");
         const jobs = (await listJobs())
-          .filter((j) => j.state !== "pulled")
+          .filter((j) => j.state !== "pulled" || needsWayBack(j))
           .map((j) => ({ word: j.jobId, description: `${outcomeLabel(j.state)} · ${conversationName(j)}` }));
         const flags = Object.entries(PULL_FLAGS).map(([word, description]) => ({ word, description }));
         return [...jobs, ...flags]
@@ -347,6 +351,9 @@ async function statusCommand(
       case "here":
         await runContextHere(pi, ctx, job);
         return;
+      case "bringBack":
+        await runRetryWayBack(ctx, runtime, job);
+        return;
       case "abort": {
         const ok = await ctx.ui.confirm(
           `Abort ${job.jobId}?`,
@@ -399,6 +406,7 @@ async function pullCommand(
   }
   if (job.state === "pulled") {
     if (here) return runContextHere(pi, ctx, job);
+    if (needsWayBack(job)) return runRetryWayBack(ctx, runtime, job);
     throw new Error(`${job.jobId} is already pulled; open it with /handoff status, or bring its context here with --here`);
   }
 
@@ -663,7 +671,16 @@ async function runReply(ctx: ExtensionCommandContext, runtime: HandoffRuntime, j
 function workLine(job: LocalJob): string {
   if (job.jobBranch === undefined) return "No git repo: only the conversation came back.";
   if (job.worktree !== undefined) return `Worktree: ${job.worktree} on branch ${job.jobBranch}.`;
+  if (job.wayBackText !== undefined) return job.wayBackText;
   return `Branch: origin/${job.jobBranch} fetched; your working tree is unchanged.`;
+}
+
+/** /handoff pull on a pulled job whose work could not come back yet: try again. */
+async function runRetryWayBack(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob): Promise<void> {
+  const { wayBack } = await retryWayBack(job, progressTo(ctx, `Bringing back ${job.jobId}`));
+  clearProgress(ctx);
+  ctx.ui.notify(`☁ ${job.jobId}: ${wayBack.text}`, wayBack.kind === "pending" ? "error" : "info");
+  await runtime.refreshStatusLine();
 }
 
 async function runPull(

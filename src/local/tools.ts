@@ -12,7 +12,8 @@ import { buildJobContext } from "./here.ts";
 import { ACTIVE_STATES, conversationName, type LocalJob, listJobs, parseFilter, readJob, writeJob } from "./jobs.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { outcomeLabel } from "./outcome.ts";
-import { pullJob, StillRunningError, stopJob } from "./pull.ts";
+import { pullJob, retryWayBack, StillRunningError, stopJob } from "./pull.ts";
+import { needsWayBack } from "./wayback.ts";
 import { pushJob } from "./push.ts";
 import { HandoffCancelledError } from "./git.ts";
 import { canReply, replyJob } from "./reply.ts";
@@ -52,6 +53,7 @@ function describeJob(job: LocalJob): string {
     }
   }
   if (job.error !== undefined) lines.push(`Error: ${job.error}`);
+  if (job.wayBackText !== undefined) lines.push(`Its work: ${job.wayBackText}`);
   if (job.lastAssistantText !== undefined) lines.push("", "The job's last message:", job.lastAssistantText);
   return lines.join("\n");
 }
@@ -111,7 +113,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     name: "handoff_pull",
     label: "Handoff pull",
     description:
-      "Bring a finished job back: its branch is fetched, its conversation is saved on the laptop, the cloud machine is cleaned up, and you get a summary of what it did, its commits and its final message to continue from. The code stays on the job's branch: do not merge or copy it unless the user asks. On a job already pulled it returns the summary again. The user is asked to confirm.",
+      "Bring a finished job back: its conversation is saved on the laptop, the cloud machine is cleaned up, its work comes back (the folder's branch is fast-forwarded to it, or it waits in the job's pull request), and you get a summary of what it did, its commits, where its code is and its final message to continue from. Do not merge or copy the code yourself unless the user asks. On a pulled job whose work could not come back yet, it tries again; otherwise it returns the summary again. The user is asked to confirm.",
     promptSnippet: "handoff_pull: bring a finished job back and read what it did",
     parameters: Type.Object({
       job: Type.String({ description: "The job id, such as h3 or h1k" }),
@@ -126,7 +128,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
         const ok = await confirmed(
           ctx,
           `Pull ${job.jobId}?`,
-          `Bring "${conversationName(job)}" back and read what it did.${params.abort ? " Its run in progress is stopped first." : ""} It is removed from the Sprite; its branch is fetched.`,
+          `Bring "${conversationName(job)}" back and read what it did.${params.abort ? " Its run in progress is stopped first." : ""} It is removed from the Sprite; its work comes back into ${job.folder} when it can.`,
         );
         if (!ok) return text(DECLINED);
         try {
@@ -135,6 +137,11 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
           if (error instanceof StillRunningError) return text(error.message);
           throw error;
         }
+        await runtime.refreshStatusLine();
+      } else if (needsWayBack(job)) {
+        const ok = await confirmed(ctx, `Bring ${job.jobId}'s work back?`, `Try again to bring its work into ${job.folder}. ${job.wayBackText ?? ""}`);
+        if (!ok) return text(DECLINED);
+        job = (await retryWayBack(job, progress)).job;
         await runtime.refreshStatusLine();
       }
       try {

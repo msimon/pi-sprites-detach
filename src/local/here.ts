@@ -71,9 +71,11 @@ async function summarize(ctx: ExtensionContext, entries: SessionEntry[]): Promis
 /** The job's commits since the handoff and the files they change, from the fetched branch. */
 async function gitContext(job: LocalJob): Promise<string | undefined> {
   if (job.protocol !== "git" || job.jobBranch === undefined || job.baseHead === undefined) return undefined;
-  const range = `${job.baseHead}..origin/${job.jobBranch}`;
+  // After a fast-forward the branch is deleted: its tip is recorded as jobHead.
+  const tip = job.jobHead ?? `origin/${job.jobBranch}`;
+  const range = `${job.baseHead}..${tip}`;
   const log = await run("git", ["log", "--oneline", "--no-decorate", range], { cwd: job.folder });
-  const stat = await run("git", ["diff", "--stat", job.baseHead, `origin/${job.jobBranch}`], { cwd: job.folder });
+  const stat = await run("git", ["diff", "--stat", job.baseHead, tip], { cwd: job.folder });
   if (log.code !== 0) return `Branch ${job.jobBranch} could not be read here (${log.stderr.trim()}).`;
   const commits = log.stdout.trim().split("\n").filter((line) => line !== "");
   const shown = commits.slice(0, MAX_COMMITS);
@@ -88,12 +90,20 @@ async function gitContext(job: LocalJob): Promise<string | undefined> {
   ].join("\n");
 }
 
+/** Where a pulled job's code is, for the context message. */
+function codeWhere(job: LocalJob): string {
+  if (job.protocol !== "git" || job.jobBranch === undefined) {
+    return "It ran without a git branch, so none of its files came back; only its conversation did.";
+  }
+  if (job.wayBack === "fast-forwarded") return `Its code is in ${job.folder} now: ${job.wayBackText ?? ""}`;
+  if (job.wayBack === "pr") return `Its code is in a pull request, not in ${job.folder} yet: ${job.wayBackText ?? ""}`;
+  const status = job.wayBackText === undefined || job.worktree !== undefined ? "" : ` ${job.wayBackText}`;
+  return `Its code is on branch ${job.jobBranch} on origin, fetched here as origin/${job.jobBranch}${job.worktree === undefined ? "" : ` and checked out in ${job.worktree}`}. This working directory does not have it: do not merge, cherry-pick or copy it unless the user asks; use it as context.${status}`;
+}
+
 /** The message added to this conversation. */
 export function contextMessage(job: LocalJob, summary: string, git: string | undefined, sessionFile: string): string {
-  const where =
-    job.protocol === "git" && job.jobBranch !== undefined
-      ? `Its code is on branch ${job.jobBranch} on origin, fetched here as origin/${job.jobBranch}${job.worktree === undefined ? "" : ` and checked out in ${job.worktree}`}. This working directory does not have it: do not merge, cherry-pick or copy it unless the user asks; use it as context.`
-      : "It ran without a git branch, so none of its files came back; only its conversation did.";
+  const where = codeWhere(job);
   const final = (job.lastAssistantText ?? "").trim();
   return [
     `[pi-handoff] Context from handoff job ${job.jobId} ("${conversationName(job)}"). The job split off from this conversation, ran on a cloud machine, and is now back on the laptop as its own conversation. Its work is not part of this conversation's history; this is what it did, so you can continue from it here.`,
