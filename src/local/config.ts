@@ -23,7 +23,10 @@ async function installExamples(): Promise<void> {
 export interface HandoffConfig {
   /** Sprite for new jobs; each job records its own. */
   sprite: string;
-  /** Whether the remote agent opens a pull request when the work is ready. */
+  /**
+   * Whether the remote agent opens a pull request when the work is ready. With "never"
+   * (the default) the work comes back by pull, which fast-forwards the local branch.
+   */
   pr: "auto" | "never";
   sync: {
     /** Exactly what Config sync sends (settings.json always syncs, rewritten). */
@@ -48,7 +51,7 @@ export interface HandoffConfig {
 
 export const DEFAULT_CONFIG: HandoffConfig = {
   sprite: "pi-handoff",
-  pr: "auto",
+  pr: "never",
   sync: {
     paths: [
       "~/.pi/agent/AGENTS.md",

@@ -120,6 +120,7 @@ export async function pushJob(
         files.push([join(tmp, "files.tgz"), `${upload}/files.tgz`]);
       }
 
+      const pr = git.branch === undefined ? ("never" as const) : config.pr;
       remote = {
         jobId,
         jobName,
@@ -131,13 +132,15 @@ export async function pushJob(
         cloneUrl: git.cloneUrl,
         repoKey: git.repoKey,
         jobBranch,
-        ...(git.branch === undefined ? { pr: "never" as const } : { baseBranch: git.branch, pr: config.pr }),
+        ...(git.branch === undefined ? {} : { baseBranch: git.branch }),
+        pr,
       };
       gitFields = {
         jobBranch,
         ...(git.branch === undefined ? {} : { baseBranch: git.branch }),
         baseHead: git.head,
-        snapshot,
+        ...(snapshot ? { snapshotSha: sha } : {}),
+        pr,
       };
     } else {
       remote = {

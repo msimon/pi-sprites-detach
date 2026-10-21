@@ -83,8 +83,12 @@ export interface LocalJob {
   jobBranch?: string;
   baseBranch?: string;
   baseHead?: string;
-  /** Whether uncommitted work went along as a snapshot commit. */
+  /** The snapshot commit uncommitted work went along as, when there was any. */
+  snapshotSha?: string;
+  /** Records from before snapshotSha: whether there was a snapshot. */
   snapshot?: boolean;
+  /** The PR mode the job ran with. Records without it ran with "auto". */
+  pr?: "auto" | "never";
   jobRoot: string;
   /** cmux surface of the window that started the job; notifications go there. */
   surface?: string;

@@ -238,7 +238,7 @@ async function pushCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
     `Conversation: ${conversationName(job)}`,
     job.jobBranch === undefined
       ? "No git repo here: the job has the conversation only."
-      : `Branch ${job.jobBranch} on origin${job.snapshot ? " (uncommitted work included as a snapshot commit)" : ""}.`,
+      : `Branch ${job.jobBranch} on origin${job.snapshotSha !== undefined ? " (uncommitted work included as a snapshot commit)" : ""}.`,
     "This session stays here, unchanged. A message will appear here when the job finishes or needs input.",
   ];
   if (synced.length > 0) lines.push(`Synced first: ${synced.join(", ")}.`);
