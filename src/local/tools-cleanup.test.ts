@@ -6,7 +6,7 @@ import { after, test } from "node:test";
 import { has, setupPulledJob } from "./git-fixture.ts";
 
 // Job records live under HOME, set before the modules that read it are loaded.
-const home = mkdtempSync(join(tmpdir(), "pi-handoff-tool-"));
+const home = mkdtempSync(join(tmpdir(), "pi-detach-tool-"));
 process.env.HOME = home;
 const { registerHandoffTools } = await import("./tools.ts");
 const { readJob, writeJob } = await import("./jobs.ts");
@@ -60,7 +60,7 @@ test("merged work: declined removes nothing; no UI refuses; confirmed removes an
   assert.match(await cleanup("h1"), /The user declined/);
   assert.equal(existsSync(wt), true);
   assert.match(asked[0] ?? "", /the worktree .*h1/);
-  assert.match(asked[0] ?? "", /the local branch main-handoff-1/);
+  assert.match(asked[0] ?? "", /the local branch main-detach-1/);
 
   assert.match(await cleanup("h1", ctx(false)), /THROWS: .*needs the user's confirmation/);
   assert.equal(existsSync(wt), true);
@@ -68,7 +68,7 @@ test("merged work: declined removes nothing; no UI refuses; confirmed removes an
   answer = true;
   assert.match(await cleanup("h1"), /Cleaned up h1: removed worktree/);
   assert.equal(existsSync(wt), false);
-  assert.equal(has(work, "refs/heads/main-handoff-1"), false);
+  assert.equal(has(work, "refs/heads/main-detach-1"), false);
   assert.ok((await readJob("h1"))?.cleanedAt);
 
   assert.match(await cleanup("h1"), /already cleaned up/);

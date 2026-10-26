@@ -36,6 +36,7 @@ import { ensureSpriteBuild } from "./install.ts";
 import {
   ACTIVE_STATES,
   conversationName,
+  isJobIdShaped,
   isOffSprite,
   JOB_FILTERS,
   type LocalJob,
@@ -53,6 +54,7 @@ import { needsWayBack } from "./wayback.ts";
 import { canReply, replyJob } from "./reply.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
+import { migrateLegacyHome } from "./migrate.ts";
 import { HandoffCancelledError } from "./git.ts";
 import { HandoffRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
@@ -61,7 +63,7 @@ import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from 
 import { blockers, canCleanup, type CleanupOptions, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
 import { canDrop, type DropOptions, DropRefusedError, dropJob, dropStopsRun } from "./drop.ts";
 
-const PROGRESS_KEY = "handoff-progress";
+const PROGRESS_KEY = "detach-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
 const SUBCOMMANDS = [
   { name: "sync", usage: "sync", description: "bring the Sprite's pi setup in line with the laptop" },
@@ -98,7 +100,7 @@ const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 const isPullable = (job: LocalJob): boolean => canReply(job) || needsWayBack(job);
 
 export default function handoffLocal(pi: ExtensionAPI): void {
-  if (process.env.HANDOFF_JOB_ID !== undefined) return;
+  if (process.env.DETACH_JOB_ID !== undefined) return;
 
   const runtime = new HandoffRuntime(pi);
   registerOutcomeRenderer(pi);
@@ -106,6 +108,9 @@ export default function handoffLocal(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => {
     try {
+      // Before anything reads the config or the job records: they move with the folder.
+      const moved = await migrateLegacyHome();
+      if (moved !== undefined) ctx.ui.notify(`[pi-sprites-detach] ${moved}`, moved.startsWith("Moved") ? "info" : "warning");
       await ensureSpriteBuild();
       await runtime.start(ctx);
     } catch (error: unknown) {
@@ -497,14 +502,14 @@ async function runWatch(ctx: ExtensionCommandContext, runtime: HandoffRuntime, j
   if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}: its events are no longer on the Sprite`);
   if (job.state === "joined") throw new Error(`${job.jobId} is joined, so it is not streamed: attach to it with /handoff join ${job.jobId}`);
 
-  // The Sprite needs the handoff-watch script; this is one small read when nothing changed.
+  // The Sprite needs the detach-watch script; this is one small read when nothing changed.
   const progress = progressTo(ctx, `Watching ${job.jobId}`);
   progress("syncing the Sprite…");
   const { config } = await loadConfig();
   await syncSprite(config, job.sprite, progress);
   clearProgress(ctx);
 
-  // Closing the view ends the stream; the kill of `sprite exec` ends handoff-watch on the Sprite.
+  // Closing the view ends the stream; the kill of `sprite exec` ends detach-watch on the Sprite.
   const open: { stream?: WatchStream } = {};
   await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
     const view = new WatchView(theme, job, () => tui.terminal.rows, () => tui.requestRender(), () => done());
@@ -683,11 +688,12 @@ async function runJoin(
 
 /** /handoff reply [job] [text]: without text, ask for it. */
 async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, args: string): Promise<void> {
-  // Ids are h + base 36, so a first word like "hey" is id-shaped: it names a job only
-  // if that job exists; otherwise it is the start of the text.
-  const first = /^(h[0-9a-z]+)(?:\s+([\s\S]*))?$/.exec(args);
-  const firstJob = first ? await readJob(first[1] as string) : undefined;
-  if (first && firstJob === undefined && /^h\d+$/.test(first[1] as string)) throw new Error(`no job ${first[1]}`);
+  // Ids are d (or h) + base 36, so a first word like "hey" or "do" is id-shaped: it
+  // names a job only if that job exists; otherwise it is the start of the text.
+  const first = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args);
+  const word = first?.[1];
+  const firstJob = word !== undefined && isJobIdShaped(word) ? await readJob(word) : undefined;
+  if (word !== undefined && firstJob === undefined && /^[dh]\d+$/.test(word)) throw new Error(`no job ${word}`);
   const named = firstJob === undefined ? null : first;
   const job =
     firstJob ??

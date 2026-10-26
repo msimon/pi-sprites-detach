@@ -1,7 +1,7 @@
 // /handoff watch: pi's JSON event stream of a job's run, turned into a transcript.
 //
 // The Sprite streams events.jsonl (docs: json.md): message and tool events, plus the
-// watch_wait and watch_end records handoff-watch adds. `Transcript` folds them into
+// watch_wait and watch_end records detach-watch adds. `Transcript` folds them into
 // blocks (prompt, assistant text, thinking, tool calls with their output, notes);
 // `renderTranscript` draws the blocks as lines for a given width. Colours come from a
 // Style, so tests render plain text.
@@ -46,7 +46,7 @@ const clean = (text: string): string => text.replace(ANSI, "").replace(/\r/g, ""
 
 export class Transcript {
   readonly blocks: Block[] = [];
-  /** `waiting`: the run has not started pi yet. `ended`: handoff-watch said the run is over. */
+  /** `waiting`: the run has not started pi yet. `ended`: detach-watch said the run is over. */
   phase: "waiting" | "live" | "ended" = "live";
   endState: string | undefined;
   /** Bumped on every change, so a view knows to draw again. */

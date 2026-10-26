@@ -9,7 +9,7 @@ import { after, test } from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 // Job records go under HOME (paths.ts reads it when it loads): a temp HOME first.
-const root = mkdtempSync(join(tmpdir(), "pi-handoff-drop-test-"));
+const root = mkdtempSync(join(tmpdir(), "pi-detach-drop-test-"));
 process.env.HOME = root;
 const { canDrop, DropRefusedError, dropJob } = await import("./drop.ts");
 const { g, has } = await import("./git-fixture.ts");
@@ -34,8 +34,8 @@ function setup(state: LocalJob["state"] = "done") {
   g(work, "add", "a.txt");
   g(work, "commit", "-qm", "a");
   const head = g(work, "rev-parse", "HEAD");
-  g(work, "push", "-q", "origin", `${head}:refs/heads/feat-handoff-1`);
-  g(work, "fetch", "-q", "origin", "+refs/heads/feat-handoff-1:refs/remotes/origin/feat-handoff-1");
+  g(work, "push", "-q", "origin", `${head}:refs/heads/feat-detach-1`);
+  g(work, "fetch", "-q", "origin", "+refs/heads/feat-detach-1:refs/remotes/origin/feat-detach-1");
   writeFileSync(join(work, "mine.txt"), "uncommitted\n");
 
   const sessions = join(dir, "sessions");
@@ -54,7 +54,7 @@ function setup(state: LocalJob["state"] = "done") {
     mainSessionId: "m",
     forkLeafId: "",
     jobSessionId: "j",
-    jobBranch: "feat-handoff-1",
+    jobBranch: "feat-detach-1",
     baseBranch: "feat",
     baseHead: head,
     jobRoot: "/home/sprite/jobs/x",
@@ -84,7 +84,7 @@ function setup(state: LocalJob["state"] = "done") {
   return { origin, work, job, sprite, calls, head };
 }
 
-const onOrigin = (origin: string): boolean => has(origin, "refs/heads/feat-handoff-1");
+const onOrigin = (origin: string): boolean => has(origin, "refs/heads/feat-detach-1");
 
 test("canDrop: any job still on the Sprite, running ones too", () => {
   const j = (state: LocalJob["state"]) => ({ state }) as LocalJob;
@@ -101,7 +101,7 @@ test("drop: branch deleted, conversation saved with a briefing, Sprite cleaned, 
   assert.ok(job.cleanedAt);
   assert.equal(job.cleanupPending, undefined);
   assert.equal(onOrigin(f.origin), false);
-  assert.equal(has(f.work, "refs/remotes/origin/feat-handoff-1"), false);
+  assert.equal(has(f.work, "refs/remotes/origin/feat-detach-1"), false);
   // The folder: same commit, its uncommitted file still there.
   assert.equal(g(f.work, "rev-parse", "HEAD"), f.head);
   assert.equal(readFileSync(join(f.work, "mine.txt"), "utf8"), "uncommitted\n");
@@ -111,9 +111,9 @@ test("drop: branch deleted, conversation saved with a briefing, Sprite cleaned, 
   const entries = SessionManager.open(saved).getEntries();
   const last = entries.at(-1) as { customType?: string; content?: string };
   assert.equal(last.customType, "pi-handoff-return");
-  assert.match(last.content ?? "", /dropped this job: its work was discarded.*branch feat-handoff-1 was deleted on origin/);
+  assert.match(last.content ?? "", /dropped this job: its work was discarded.*branch feat-detach-1 was deleted on origin/);
   assert.equal(JSON.parse(readFileSync(saved, "utf8").split("\n")[0] as string).cwd, f.work);
-  assert.match(lines.join(" "), /Deleted feat-handoff-1 on origin\..*Removed from the Sprite\./);
+  assert.match(lines.join(" "), /Deleted feat-detach-1 on origin\..*Removed from the Sprite\./);
 
   // Recorded, and hidden from "all" like a pulled job.
   const record = await readJob(f.job.jobId);
@@ -191,7 +191,7 @@ test("no session file left on the Sprite: dropped without a conversation", async
 
 test("a branch already gone from origin counts as deleted", async () => {
   const f = setup();
-  g(f.work, "push", "-q", "origin", "--delete", "feat-handoff-1");
+  g(f.work, "push", "-q", "origin", "--delete", "feat-detach-1");
   const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, f.sprite());
   assert.ok(job.cleanedAt);
   assert.match(lines.join(" "), /already gone from origin/);

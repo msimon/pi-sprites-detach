@@ -18,7 +18,7 @@ for (const key of ["GIT_AUTHOR", "GIT_COMMITTER"]) {
   process.env[`${key}_EMAIL`] = "t@t";
 }
 
-const root = mkdtempSync(join(tmpdir(), "pi-handoff-wayback-test-"));
+const root = mkdtempSync(join(tmpdir(), "pi-detach-wayback-test-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 let count = 0;
 
@@ -62,7 +62,7 @@ async function handoff(dirty: (work: string) => void = () => {}, pr: "auto" | "n
   const head = g(work, "rev-parse", "HEAD");
   const info = { repoRoot: work, branch: "feat", head, originUrl: origin, cloneUrl: origin, repoKey: "t/work" };
   const { sha, snapshot } = await snapshotCommit(info);
-  const jobBranch = "feat-handoff-1";
+  const jobBranch = "feat-detach-1";
   g(work, "push", "-q", "origin", `${sha}:refs/heads/${jobBranch}`);
   g(dir, "clone", "-q", "-b", jobBranch, origin, sprite);
 
@@ -108,7 +108,7 @@ test("ff clean: the branch moves to the job's work, its branch is deleted", asyn
   assert.deepEqual(status(f.work), []);
   assert.equal(originHas(f), false);
   assert.equal(has(f.work, `refs/remotes/origin/${f.job.jobBranch}`), false);
-  assert.match(back.text, /feat was fast-forwarded to the job's work \(1 commit\)\. Deleted feat-handoff-1 on origin\. feat is not pushed yet\./);
+  assert.match(back.text, /feat was fast-forwarded to the job's work \(1 commit\)\. Deleted feat-detach-1 on origin\. feat is not pushed yet\./);
 });
 
 test("ff with only the snapshot's changes in the folder: they become the snapshot commit", async () => {
@@ -205,7 +205,7 @@ test("local commits since the handoff: nothing changes, merge yourself", async (
   f.fetch();
   const back = await bringWorkBack(f.job, { findPr: noPr });
   assert.equal(back.kind, "manual");
-  assert.match(back.text, /feat has 1 commit since the handoff\. Merge origin\/feat-handoff-1 into it yourself\./);
+  assert.match(back.text, /feat has 1 commit since the handoff\. Merge origin\/feat-detach-1 into it yourself\./);
   assert.equal(g(f.work, "log", "-1", "--format=%s"), "local");
 });
 

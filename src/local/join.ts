@@ -1,7 +1,7 @@
 // /handoff join: work with a job's agent live on the Sprite, without pulling.
 //
-// handoff-join starts interactive pi on the job's conversation in the tmux session
-// handoff-<jobId> on the Sprite (or finds it running); this window then opens a
+// detach-join starts interactive pi on the job's conversation in the tmux session
+// detach-<jobId> on the Sprite (or finds it running); this window then opens a
 // terminal attached to it: a cmux split, or a command printed to run in any terminal.
 // The job is `joined` until that pi quits, which it does once idle with nobody
 // attached; the status poll then posts the usual card.
@@ -9,7 +9,7 @@
 import { loadConfig } from "./config.ts";
 import { run, spriteBin, spriteJson } from "./exec.ts";
 import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
-import { REMOTE_HANDOFF_HOME } from "./paths.ts";
+import { REMOTE_DETACH_HOME } from "./paths.ts";
 import { mergeStatus, type RemoteStatus } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
@@ -54,7 +54,7 @@ export async function joinJob(
   progress(abort ? "stopping the run and starting pi…" : "starting pi on the Sprite…");
   const result = await spriteJson<JoinResult>(
     job.sprite,
-    `exec "${REMOTE_HANDOFF_HOME}/bin/handoff-join" "$@"`,
+    `exec "${REMOTE_DETACH_HOME}/bin/detach-join" "$@"`,
     [job.jobId, ...(abort ? ["--abort"] : [])],
     { timeoutMs: 120_000 },
   );
@@ -80,9 +80,9 @@ export async function joinJob(
   return { job: updated, already: result.joined === "already", attachCommand: attachCommand(job), synced };
 }
 
-/** `sprite exec --tty` running handoff-attach, quoted for a shell. */
+/** `sprite exec --tty` running detach-attach, quoted for a shell. */
 export function attachCommand(job: Pick<LocalJob, "jobId" | "sprite">, bin = spriteBin()): string {
-  return [bin, "exec", "-s", job.sprite, "--tty", "--", `${REMOTE_HANDOFF_HOME}/bin/handoff-attach`, job.jobId]
+  return [bin, "exec", "-s", job.sprite, "--tty", "--", `${REMOTE_DETACH_HOME}/bin/detach-attach`, job.jobId]
     .map(shellQuote)
     .join(" ");
 }

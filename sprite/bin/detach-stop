@@ -1,18 +1,18 @@
 #!/bin/bash
-# handoff-stop <jobId>: stop a job's run in progress (/handoff pull --abort, the job
+# detach-stop <jobId>: stop a job's run in progress (/handoff pull --abort, the job
 # browser's Abort).
 #
 # First the `stop` marker, so the runner's TERM trap records `aborted` (not an
 # interruption to resume), then delete the run's service, so the runtime does not start
 # it again (this TERMs the runner). pi runs under sudo in its own namespace, so TERM
-# pi and its tools too (found by HANDOFF_JOB_ID), and KILL whatever is left after
+# pi and its tools too (found by DETACH_JOB_ID), and KILL whatever is left after
 # 20 s. If the runner could not record it, mark the job aborted here.
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-stop <jobId>}
-dir=$HANDOFF_STATE/$job
+job=${1:?usage: detach-stop <jobId>}
+dir=$DETACH_STATE/$job
 status=$dir/status.json
 [ -f "$dir/job.json" ] || { echo "no job $job on this Sprite" >&2; exit 2; }
 
@@ -20,7 +20,7 @@ stopped=false
 if runner_alive "$job"; then
   stopped=true
   runner=$(pid_of "$dir/runner.pid")
-  echo "== $(now) handoff-stop: stopping the run (runner ${runner:-gone})" >>"$dir/runner.log"
+  echo "== $(now) detach-stop: stopping the run (runner ${runner:-gone})" >>"$dir/runner.log"
   touch "$dir/stop"
   service_delete "$job"
   [ -n "$runner" ] && kill -TERM "$runner" 2>/dev/null
@@ -45,6 +45,6 @@ fi
 # A joined pi's tmux session closes with it; make sure nothing is left attached to it.
 tmux kill-session -t "=$(join_session "$job")" 2>/dev/null || true
 # A KILLed runner leaves its hold behind; it expires in 5 minutes anyway.
-"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/handoff-$job" >/dev/null 2>&1 || true
+"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/detach-$job" >/dev/null 2>&1 || true
 
 emit "$(jq -c --argjson s "$stopped" '{stopped:$s, status:.}' "$status")"

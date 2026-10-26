@@ -1,8 +1,8 @@
-// Builds ~/.pi-handoff/sprite/, the self-contained folder that is synced to the
-// Sprite's ~/.pi-handoff/sprite/. pi has no install hook, so this runs on session_start and
+// Builds ~/.pi-sprites-detach/sprite/, the self-contained folder that is synced to the
+// Sprite's ~/.pi-sprites-detach/sprite/. pi has no install hook, so this runs on session_start and
 // before every sync; it only rewrites the folder when the package's files changed.
 //
-//   bin/        handoff-run, -sync-apply, -stop, -pull, -clean, lib.sh   (from sprite/bin)
+//   bin/        detach-run, -sync-apply, -stop, -pull, -clean, lib.sh   (from sprite/bin)
 //   setup/      bootstrap.sh, install-tool.sh, tools/*.sh     (from sprite/setup)
 //   extension/  the remote extension, loaded with pi -e        (from src/remote)
 //   manifest.json { version, hash }
@@ -68,7 +68,7 @@ async function readManifest(): Promise<{ hash?: string } | undefined> {
 }
 
 /**
- * Make sure ~/.pi-handoff/sprite/ matches the package. Cheap when nothing changed.
+ * Make sure ~/.pi-sprites-detach/sprite/ matches the package. Cheap when nothing changed.
  * `onNote` hears about a stale lock that had to be removed.
  */
 export async function ensureSpriteBuild(onNote?: (note: string) => void): Promise<SpriteBuild> {
@@ -92,7 +92,7 @@ const LOCK_FILE = `${SPRITE_BUILD_DIR}.lock`;
 const STALE_MS = 10_000;
 
 /**
- * Run `fn` holding ~/.pi-handoff/sprite.lock, created exclusively with the holder's
+ * Run `fn` holding ~/.pi-sprites-detach/sprite.lock, created exclusively with the holder's
  * pid and time. Another holder, in this process or another pi window, is waited for;
  * a stale lock (holder gone, or older than STALE_MS) is removed.
  */

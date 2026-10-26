@@ -1,6 +1,6 @@
 // /handoff pull: bring a job's conversation and work back to the laptop.
 //
-// 1. On the Sprite, handoff-pull refuses while a run is in progress (or stops it with
+// 1. On the Sprite, detach-pull refuses while a run is in progress (or stops it with
 //    --abort), commits what the agent left uncommitted and pushes the job branch.
 // 2. The job's session file is downloaded into the original folder's session dir,
 //    with the return briefing appended, so it shows in /resume there.
@@ -8,7 +8,7 @@
 //    a local worktree. Otherwise the work comes back by its way back (wayback.ts): the
 //    job's pull request, or a fast-forward of the folder's branch. That happens before
 //    the session is saved, so its return briefing says where the work is.
-// 4. Only then is the job removed from the Sprite (handoff-clean) and marked pulled.
+// 4. Only then is the job removed from the Sprite (detach-clean) and marked pulled.
 //
 // A way back that could not happen yet (`pending`) is retried by /handoff pull <job>
 // on the pulled job (retryWayBack), without the Sprite.
@@ -19,11 +19,13 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { run, runOk, spriteJson, spritePull } from "./exec.ts";
+import { loadConfig } from "./config.ts";
 import { detectGit } from "./git.ts";
+import { syncSprite } from "./sync.ts";
 import { bringWorkBack, needsWayBack, type WayBack } from "./wayback.ts";
 import { type LocalJob, writeJob } from "./jobs.ts";
 import { RETURN_MESSAGE, type ReturnDetails } from "./outcome.ts";
-import { REMOTE_HANDOFF_HOME, REMOTE_STATE, WORKTREES_DIR } from "./paths.ts";
+import { REMOTE_DETACH_HOME, REMOTE_STATE, WORKTREES_DIR } from "./paths.ts";
 import { cleanSprite, mergeStatus, type RemoteStatus } from "./runtime.ts";
 
 export interface PullOptions {
@@ -55,13 +57,25 @@ interface PrepareResult {
   sessionBytes?: number;
 }
 
-const runScript = (name: string): string => `exec "${REMOTE_HANDOFF_HOME}/bin/${name}" "$@"`;
+const runScript = (name: string): string => `exec "${REMOTE_DETACH_HOME}/bin/${name}" "$@"`;
+
+/**
+ * Bring the Sprite's setup and pi-sprites-detach's scripts in line first, as a handoff,
+ * reply or join does: after an update (or the rename) the scripts run below may be new.
+ * One small read when nothing changed.
+ */
+export async function syncFirst(sprite: string, progress: (text: string) => void = () => {}): Promise<void> {
+  progress("syncing the Sprite…");
+  const { config } = await loadConfig();
+  await syncSprite(config, sprite, progress);
+}
 
 /** Stop a job's run in progress (the job browser's Abort). Returns the final status. */
 export async function stopJob(job: LocalJob): Promise<RemoteStatus | undefined> {
+  await syncFirst(job.sprite);
   const result = await spriteJson<{ stopped: boolean; status?: RemoteStatus | null }>(
     job.sprite,
-    runScript("handoff-stop"),
+    runScript("detach-stop"),
     [job.jobId],
     { timeoutMs: 90_000 },
   );
@@ -69,10 +83,11 @@ export async function stopJob(job: LocalJob): Promise<RemoteStatus | undefined> 
 }
 
 export async function pullJob(job: LocalJob, options: PullOptions, progress: (text: string) => void): Promise<PullResult> {
+  await syncFirst(job.sprite, progress);
   progress(options.abort ? "stopping the run and finishing on the Sprite…" : "finishing on the Sprite…");
   const prepared = await spriteJson<PrepareResult>(
     job.sprite,
-    runScript("handoff-pull"),
+    runScript("detach-pull"),
     [job.jobId, ...(options.abort ? ["--abort"] : [])],
     { timeoutMs: 180_000 },
   );
@@ -86,7 +101,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     );
   }
 
-  const tmp = await mkdtemp(join(tmpdir(), `pi-handoff-pull-${job.jobId}-`));
+  const tmp = await mkdtemp(join(tmpdir(), `pi-detach-pull-${job.jobId}-`));
   try {
     progress("downloading the conversation…");
     const downloaded = join(tmp, "session.jsonl");

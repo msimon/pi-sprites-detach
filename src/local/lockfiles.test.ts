@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { missingPackageManager } from "./lockfiles.ts";
 
 test("missingPackageManager: a lockfile tool outside remote.tools is reported, npm never", () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-lockfiles-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-lockfiles-"));
   try {
     const sub = join(root, "app");
     mkdirSync(sub);

@@ -18,16 +18,16 @@ test("canCleanup: a pulled git job that is not cleaned up yet", () => {
 });
 
 test("a merged job: the worktree, local branch and fetched ref go; origin keeps its branch", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-cleanup-"));
   try {
     const { origin, work, wt, job } = setup(root, { merged: true });
     const { job: after, removed } = await cleanupJob(job, { discard: false, remote: false }, quiet);
     assert.equal(existsSync(wt), false);
-    assert.equal(has(work, "refs/heads/main-handoff-1"), false);
-    assert.equal(has(work, "refs/remotes/origin/main-handoff-1"), false);
+    assert.equal(has(work, "refs/heads/main-detach-1"), false);
+    assert.equal(has(work, "refs/remotes/origin/main-detach-1"), false);
     assert.match(g(work, "worktree", "list"), /^[^\n]*work\s/);
     assert.equal(g(work, "worktree", "list").split("\n").length, 1);
-    assert.ok(g(origin, "branch").includes("main-handoff-1"), "origin keeps the branch");
+    assert.ok(g(origin, "branch").includes("main-detach-1"), "origin keeps the branch");
     assert.equal(after.worktree, undefined);
     assert.ok(after.cleanedAt);
     assert.equal(removed.length, 3);
@@ -37,25 +37,25 @@ test("a merged job: the worktree, local branch and fetched ref go; origin keeps 
 });
 
 test("unmerged work is refused, and removed with discard", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-cleanup-"));
   try {
     const { work, wt, job } = setup(root, { merged: false });
     await assert.rejects(cleanupJob(job, { discard: false, remote: false }, quiet), /1 commit that main does not have yet/);
     assert.equal(existsSync(wt), true, "nothing was removed");
-    assert.equal(has(work, "refs/heads/main-handoff-1"), true);
+    assert.equal(has(work, "refs/heads/main-detach-1"), true);
     await cleanupJob(job, { discard: true, remote: false }, quiet);
     assert.equal(existsSync(wt), false);
-    assert.equal(has(work, "refs/heads/main-handoff-1"), false);
+    assert.equal(has(work, "refs/heads/main-detach-1"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("work in the local base only (pull's fast-forward, not pushed yet) counts as merged", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-cleanup-"));
   try {
     const { work, wt, job } = setup(root, { merged: false });
-    g(work, "merge", "-q", "--ff-only", "main-handoff-1");
+    g(work, "merge", "-q", "--ff-only", "main-detach-1");
     await cleanupJob(job, { discard: false, remote: false }, quiet);
     assert.equal(existsSync(wt), false);
   } finally {
@@ -64,7 +64,7 @@ test("work in the local base only (pull's fast-forward, not pushed yet) counts a
 });
 
 test("uncommitted changes in the worktree are refused, even when the work is merged", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-cleanup-"));
   try {
     const { wt, job } = setup(root, { merged: true });
     writeFileSync(join(wt, "scratch.txt"), "not committed\n");
@@ -78,18 +78,18 @@ test("uncommitted changes in the worktree are refused, even when the work is mer
 });
 
 test("remote: also deletes the branch on origin, only for merged work or with discard", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-cleanup-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-cleanup-"));
   try {
     mkdirSync(join(root, "u"));
     mkdirSync(join(root, "m"));
     const unmerged = setup(join(root, "u"), { merged: false });
     await assert.rejects(cleanupJob(unmerged.job, { discard: false, remote: true }, quiet), /does not have yet/);
-    assert.ok(g(unmerged.origin, "branch").includes("main-handoff-1"));
+    assert.ok(g(unmerged.origin, "branch").includes("main-detach-1"));
 
     const merged = setup(join(root, "m"), { merged: true });
     const { removed } = await cleanupJob(merged.job, { discard: false, remote: true }, quiet);
     assert.ok(removed.some((line) => line.includes("on origin")));
-    assert.equal(g(merged.origin, "branch").includes("main-handoff-1"), false);
+    assert.equal(g(merged.origin, "branch").includes("main-detach-1"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

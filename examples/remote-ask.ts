@@ -1,16 +1,16 @@
 // remote-ask: ask_user_question for handoff jobs on the Sprite.
 //
-// An example user extension. pi-handoff copies it to ~/.pi-handoff/extensions/ on
+// An example user extension. pi-handoff copies it to ~/.pi-sprites-detach/extensions/ on
 // first run; from then on the copy is yours to edit. The default config swaps
 // @juicesharp/rpiv-ask-user-question for it on the Sprite (`remote.replace`):
 // rpiv hides its tool when there is no UI, and two extensions registering the same
 // tool name stop pi from starting, so only one of them may be loaded there.
 //
 // The runner's contract for questions, which any replacement must follow:
-// - the job's state folder is in $HANDOFF_DIR (unset outside a handoff run)
-// - write the questions to $HANDOFF_DIR/question.json
+// - the job's state folder is in $DETACH_DIR (unset outside a handoff run)
+// - write the questions to $DETACH_DIR/question.json
 // - end the run with `terminate: true`
-// handoff-run then reports the job as needs_input, and the answer arrives as the
+// detach-run then reports the job as needs_input, and the answer arrives as the
 // next user message (/handoff reply).
 //
 // Same tool name and question shape as rpiv, so conversations that used rpiv on the
@@ -35,7 +35,7 @@ const QuestionSchema = Type.Object({
 });
 
 export default function remoteAsk(pi: ExtensionAPI): void {
-  const jobDir = process.env.HANDOFF_DIR;
+  const jobDir = process.env.DETACH_DIR;
   if (jobDir === undefined) return;
 
   pi.registerTool(

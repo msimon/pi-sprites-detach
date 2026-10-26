@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { copyIndex, parseOrigin, projectPathspecs, pushNewJobBranch } from "./git.ts";
 
 test("copyIndex keeps the index's timestamps, so git still re-checks racily clean entries", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-index-test-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-index-test-"));
   try {
     const from = join(root, "index");
     writeFileSync(from, "x");
@@ -21,7 +21,7 @@ test("copyIndex keeps the index's timestamps, so git still re-checks racily clea
 });
 
 test("pushNewJobBranch: concurrent pushes of the same commit get different branches", async () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-handoff-git-test-"));
+  const root = mkdtempSync(join(tmpdir(), "pi-detach-git-test-"));
   try {
     const g = (cwd: string, ...args: string[]) =>
       execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -37,11 +37,11 @@ test("pushNewJobBranch: concurrent pushes of the same commit get different branc
     const info = { repoRoot: work, branch: "main", head, originUrl: origin, cloneUrl: origin, repoKey: "t/work" };
 
     const branches = await Promise.all([1, 2, 3].map(() => pushNewJobBranch(info, info.head)));
-    assert.deepEqual([...branches].sort(), ["main-handoff-1", "main-handoff-2", "main-handoff-3"]);
-    assert.equal(await pushNewJobBranch(info, info.head), "main-handoff-4");
+    assert.deepEqual([...branches].sort(), ["main-detach-1", "main-detach-2", "main-detach-3"]);
+    assert.equal(await pushNewJobBranch(info, info.head), "main-detach-4");
     // A window that read origin before another pushed the same commit: git calls the
     // push up to date, which must not count as creating the branch.
-    assert.equal(await pushNewJobBranch(info, info.head, { startAt: 4 }), "main-handoff-5");
+    assert.equal(await pushNewJobBranch(info, info.head, { startAt: 4 }), "main-detach-5");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

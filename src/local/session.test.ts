@@ -20,7 +20,7 @@ const assistant = (text: string, stopReason: string) =>
   }) as never;
 
 test("lastCompletedLeaf: the last assistant message that ended its turn, not one mid-turn", () => {
-  const dir = mkdtempSync(join(tmpdir(), "pi-handoff-leaf-"));
+  const dir = mkdtempSync(join(tmpdir(), "pi-detach-leaf-"));
   try {
     const main = SessionManager.create(dir, dir);
     assert.equal(lastCompletedLeaf(main.getBranch()), undefined);

@@ -87,7 +87,7 @@ export async function snapshotCommit(info: GitInfo): Promise<{ sha: string; snap
  * files, written through a temporary index so the real one is untouched (S8).
  */
 export async function worktreeTree(repoRoot: string): Promise<string> {
-  const tmp = await mkdtemp(join(tmpdir(), "pi-handoff-index-"));
+  const tmp = await mkdtemp(join(tmpdir(), "pi-detach-index-"));
   try {
     const tmpIndex = join(tmp, "index");
     try {
@@ -188,7 +188,7 @@ export async function prepareBase(
   return { pr: "auto", note: `${state === "missing" ? "Pushed" : "Updated"} ${branch} on origin, the pull request's base.` };
 }
 
-/** The highest n of the `<base>-handoff-<n>` branches on origin, 0 when none. */
+/** The highest n of the `<base>-detach-<n>` branches on origin, 0 when none. */
 async function highestJobBranch(info: GitInfo, prefix: string): Promise<number> {
   const out = await git(info.repoRoot, ["ls-remote", "--heads", "origin", `refs/heads/${prefix}*`]);
   let max = 0;
@@ -202,7 +202,7 @@ async function highestJobBranch(info: GitInfo, prefix: string): Promise<number> 
 }
 
 /**
- * Push a commit to a new branch on origin, `<base>-handoff-<n>` with the next free n,
+ * Push a commit to a new branch on origin, `<base>-detach-<n>` with the next free n,
  * and return its name; no local branch is created. Two windows handing off from the
  * same repo at the same moment must not share a branch, and their snapshot commits can
  * be identical (same tree, parent and second). So a push counts only if it created the
@@ -217,7 +217,7 @@ export async function pushNewJobBranch(
   { attempts = 5, startAt }: { attempts?: number; startAt?: number } = {},
 ): Promise<string> {
   const base = info.branch ?? `detached-${info.head.slice(0, 7)}`;
-  const prefix = `${base}-handoff-`;
+  const prefix = `${base}-detach-`;
   let n = startAt ?? (await highestJobBranch(info, prefix)) + 1;
   for (let attempt = 1; ; attempt++) {
     const branch = `${prefix}${n}`;

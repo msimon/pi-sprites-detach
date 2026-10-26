@@ -22,7 +22,7 @@ export function has(cwd: string, ref: string): boolean {
 }
 
 /**
- * A repo with an origin, a pushed job branch `main-handoff-1` and a worktree for it,
+ * A repo with an origin, a pushed job branch `main-detach-1` and a worktree for it,
  * made as `pull --worktree` makes it. `merged`: the branch is merged into main and
  * main is pushed. `root` must exist.
  */
@@ -37,17 +37,17 @@ export function setupPulledJob(root: string, { merged }: { merged: boolean }) {
   g(work, "add", "a.txt");
   g(work, "commit", "-qm", "a");
   g(work, "push", "-q", "origin", "main");
-  g(work, "switch", "-q", "-c", "main-handoff-1");
+  g(work, "switch", "-q", "-c", "main-detach-1");
   writeFileSync(join(work, "b.txt"), "b\n");
   g(work, "add", "b.txt");
   g(work, "commit", "-qm", "b");
-  g(work, "push", "-q", "origin", "main-handoff-1");
+  g(work, "push", "-q", "origin", "main-detach-1");
   g(work, "switch", "-q", "main");
-  g(work, "branch", "-q", "-D", "main-handoff-1");
+  g(work, "branch", "-q", "-D", "main-detach-1");
   g(work, "fetch", "-q", "origin");
-  g(work, "worktree", "add", "-q", "--track", "-b", "main-handoff-1", wt, "origin/main-handoff-1");
+  g(work, "worktree", "add", "-q", "--track", "-b", "main-detach-1", wt, "origin/main-detach-1");
   if (merged) {
-    g(work, "merge", "-q", "--no-ff", "-m", "merge", "main-handoff-1");
+    g(work, "merge", "-q", "--no-ff", "-m", "merge", "main-detach-1");
     g(work, "push", "-q", "origin", "main");
   }
   const job = {
@@ -56,7 +56,7 @@ export function setupPulledJob(root: string, { merged }: { merged: boolean }) {
     state: "pulled",
     protocol: "git",
     folder: work,
-    jobBranch: "main-handoff-1",
+    jobBranch: "main-detach-1",
     baseBranch: "main",
     worktree: wt,
   } as LocalJob;

@@ -1,6 +1,6 @@
 // Config sync: keep the Sprite's pi setup, pi-handoff's Sprite files and the extra
 // tools in step with the laptop. One small read when nothing changed; otherwise an
-// upload and a detached apply on the Sprite (handoff-sync-apply), polled until done.
+// upload and a detached apply on the Sprite (detach-sync-apply), polled until done.
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -11,7 +11,7 @@ import type { HandoffConfig } from "./config.ts";
 import { emitJson, run, runOk, sleep, spriteJson } from "./exec.ts";
 import { createMatcher } from "./glob.ts";
 import { withSpriteBuild } from "./install.ts";
-import { expandHome, HOME, REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
+import { expandHome, HOME, REMOTE_DETACH_HOME, REMOTE_STATE } from "./paths.ts";
 import { rewriteSettings } from "./settings.ts";
 
 const SETTINGS_FILE = join(HOME, ".pi/agent/settings.json");
@@ -115,7 +115,7 @@ async function localToolVersion(name: string): Promise<string | undefined> {
 }
 
 interface RemoteState {
-  handoffHash: string;
+  buildHash: string;
   applied: { configHash?: string; packagesHash?: string };
   state: { state?: string; step?: string | null; error?: string | null } | null;
   tools: Record<string, string>;
@@ -126,15 +126,15 @@ const READ_STATE = `
 S=${REMOTE_STATE}/sync
 applied=$(cat "$S/applied.json" 2>/dev/null || echo '{}')
 state=$(cat "$S/state.json" 2>/dev/null || echo null)
-handoff=$(jq -r '.hash // ""' ${REMOTE_HANDOFF_HOME}/manifest.json 2>/dev/null)
+build=$(jq -r '.hash // ""' ${REMOTE_DETACH_HOME}/manifest.json 2>/dev/null)
 tools='{}'
 for t in "$@"; do
-  r=${REMOTE_HANDOFF_HOME}/setup/tools/$t.sh
+  r=${REMOTE_DETACH_HOME}/setup/tools/$t.sh
   v=""
   [ -f "$r" ] && v=$(source "$r" && tool_version 2>/dev/null)
   tools=$(jq -c --arg t "$t" --arg v "$v" '. + {($t): $v}' <<<"$tools")
 done
-${emitJson("{handoffHash:$h, applied:$a, state:$s, tools:$t}", `--arg h "$handoff" --argjson a "$applied" --argjson s "$state" --argjson t "$tools"`)}
+${emitJson("{buildHash:$h, applied:$a, state:$s, tools:$t}", `--arg h "$build" --argjson a "$applied" --argjson s "$state" --argjson t "$tools"`)}
 `;
 
 /**
@@ -154,11 +154,11 @@ up=$1
 mkdir -p "$S"
 exec 9>"$S/start.lock"
 flock 9
-if [ -f "$up/handoff.tgz" ]; then
-  rm -rf ${REMOTE_HANDOFF_HOME}.next && mkdir -p ${REMOTE_HANDOFF_HOME}.next
-  tar -xzf "$up/handoff.tgz" -C ${REMOTE_HANDOFF_HOME}.next
-  rm -rf ${REMOTE_HANDOFF_HOME} && mv ${REMOTE_HANDOFF_HOME}.next ${REMOTE_HANDOFF_HOME}
-  rm "$up/handoff.tgz"
+if [ -f "$up/build.tgz" ]; then
+  rm -rf ${REMOTE_DETACH_HOME}.next && mkdir -p ${REMOTE_DETACH_HOME}.next
+  tar -xzf "$up/build.tgz" -C ${REMOTE_DETACH_HOME}.next
+  rm -rf ${REMOTE_DETACH_HOME} && mv ${REMOTE_DETACH_HOME}.next ${REMOTE_DETACH_HOME}
+  rm "$up/build.tgz"
 fi
 started=false
 if [ -z "$(ls -A "$up")" ]; then
@@ -169,7 +169,7 @@ elif [ "$(jq -r '.state // empty' "$S/state.json" 2>/dev/null)" = applying ]; th
 else
   rm -rf "$S/incoming" && mv "$up" "$S/incoming"
   jq -n '{state:"applying", step:"starting"}' >"$S/state.json"
-  setsid nohup ${REMOTE_HANDOFF_HOME}/bin/handoff-sync-apply >/dev/null 2>&1 </dev/null 9>&- &
+  setsid nohup ${REMOTE_DETACH_HOME}/bin/detach-sync-apply >/dev/null 2>&1 </dev/null 9>&- &
   started=true
 fi
 ${emitJson("{started:$st}", `--argjson st "$started"`)}
@@ -228,7 +228,7 @@ export async function syncSprite(
   }
 
   const updated: string[] = [];
-  const tmp = await mkdtemp(join(tmpdir(), "pi-handoff-sync-"));
+  const tmp = await mkdtemp(join(tmpdir(), "pi-detach-sync-"));
   try {
     const nonce = `${Date.now()}-${process.pid}`;
     const up = `${REMOTE_STATE}/sync/upload-${nonce}`;
@@ -236,9 +236,9 @@ export async function syncSprite(
 
     // Under the build lock: another pi window cannot swap the folder while it is packed.
     const recipes = await withSpriteBuild(async (current) => {
-      if (remote.handoffHash !== current.hash) {
-        await tar(current.dir, join(tmp, "handoff.tgz"), ["."]);
-        files.push([join(tmp, "handoff.tgz"), `${up}/handoff.tgz`]);
+      if (remote.buildHash !== current.hash) {
+        await tar(current.dir, join(tmp, "build.tgz"), ["."]);
+        files.push([join(tmp, "build.tgz"), `${up}/build.tgz`]);
         updated.push("pi-handoff");
       }
       return new Set((await readdir(join(current.dir, "setup/tools"))).map((f) => f.replace(/\.sh$/, "")));

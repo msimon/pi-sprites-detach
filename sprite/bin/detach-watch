@@ -1,7 +1,7 @@
 #!/bin/bash
-# handoff-watch <jobId>: stream the events of a job's last run (/handoff watch).
+# detach-watch <jobId>: stream the events of a job's last run (/handoff watch).
 #
-# Prints the lines of ~/.handoff/<jobId>/events.jsonl (pi's --mode json stream), from
+# Prints the lines of ~/.detach/<jobId>/events.jsonl (pi's --mode json stream), from
 # the start of the last run (each run begins with a session header; the file is
 # appended to), then follows it while the run lasts. A finished job's last run is
 # replayed. It ends by itself when the run does, with one last line
@@ -12,8 +12,8 @@ set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-watch <jobId>}
-dir=$HANDOFF_STATE/$job
+job=${1:?usage: detach-watch <jobId>}
+dir=$DETACH_STATE/$job
 events=$dir/events.jsonl
 state_now() { jq -r '.state // empty' "$dir/status.json" 2>/dev/null; }
 end() { printf '{"type":"watch_end","state":"%s"}\n' "$(state_now)"; }

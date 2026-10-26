@@ -10,7 +10,7 @@ import { emitJson, run, runOk, spriteJson } from "./exec.ts";
 import { missingPackageManager } from "./lockfiles.ts";
 import { type BaseDecision, detectGit, ignoredProjectFiles, prepareBase, pushNewJobBranch, snapshotCommit } from "./git.ts";
 import { type LocalJob, reserveJobId, writeJob } from "./jobs.ts";
-import { REMOTE_HANDOFF_HOME, REMOTE_STATE, SPRITE_HOME } from "./paths.ts";
+import { REMOTE_DETACH_HOME, REMOTE_STATE, SPRITE_HOME } from "./paths.ts";
 import { cloneForJob } from "./session.ts";
 import { syncSprite } from "./sync.ts";
 
@@ -18,7 +18,7 @@ export const DEFAULT_PROMPT = "Continue where we left off.";
 
 /**
  * Move the uploaded files into the job's state dir and start the run as a Sprite
- * service (handoff-start), so this exec returns at once and the run survives a
+ * service (detach-start), so this exec returns at once and the run survives a
  * restart of the Sprite environment. Refuses if the job dir already exists.
  */
 const START_JOB = `
@@ -31,7 +31,7 @@ if [ -e "$dir" ]; then
   exit 1
 fi
 mv "$up" "$dir"
-${REMOTE_HANDOFF_HOME}/bin/handoff-start "$job"
+${REMOTE_DETACH_HOME}/bin/detach-start "$job"
 ${emitJson("{started:true}")}
 `;
 
@@ -86,7 +86,7 @@ export async function pushJob(
     const missing = missingPackageManager(folder, top.stdout.trim(), config.remote.tools);
     if (missing !== undefined) {
       throw new Error(
-        `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-handoff/config.json, and run /handoff again.`,
+        `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-sprites-detach/config.json, and run /handoff again.`,
       );
     }
     // A PR needs its base on origin with the local commits (git protocol: base branch).
@@ -104,7 +104,7 @@ export async function pushJob(
   const mainName = ctx.sessionManager.getSessionName() ?? basename(folder);
   const jobName = `${mainName} [${jobId}]`;
   const now = new Date().toISOString();
-  const tmp = await mkdtemp(join(tmpdir(), `pi-handoff-${jobId}-`));
+  const tmp = await mkdtemp(join(tmpdir(), `pi-detach-${jobId}-`));
   const upload = `${REMOTE_STATE}/upload-${jobId}-${Date.now()}`;
   const files: Array<[string, string]> = [];
 

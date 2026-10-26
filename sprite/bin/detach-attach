@@ -1,13 +1,13 @@
 #!/bin/bash
-# handoff-attach <jobId>: attach this terminal to a joined pi. Run by the laptop as
-# `sprite exec -s <sprite> --tty -- ~/.pi-handoff/sprite/bin/handoff-attach <jobId>`
-# after handoff-join. Closing the terminal detaches: pi keeps going until it is idle
+# detach-attach <jobId>: attach this terminal to a joined pi. Run by the laptop as
+# `sprite exec -s <sprite> --tty -- ~/.pi-sprites-detach/sprite/bin/detach-attach <jobId>`
+# after detach-join. Closing the terminal detaches: pi keeps going until it is idle
 # and nobody is attached, then quits.
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-attach <jobId>}
+job=${1:?usage: detach-attach <jobId>}
 session=$(join_session "$job")
 export TERM=${TERM:-xterm-256color}
 if ! tmux has-session -t "=$session" 2>/dev/null; then

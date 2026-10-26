@@ -1,15 +1,15 @@
 #!/bin/bash
-# handoff-joined <jobId> [pi args...]: interactive pi on a job's conversation, for
-# /handoff join. Runs as the only program of the tmux session handoff-<jobId>
-# (handoff-join starts it), so the session closes when this script exits.
+# detach-joined <jobId> [pi args...]: interactive pi on a job's conversation, for
+# /handoff join. Runs as the only program of the tmux session detach-<jobId>
+# (detach-join starts it), so the session closes when this script exits.
 #
-# Same namespace and session file as handoff-run, but interactive: pi draws in the
-# tmux pane, and the user types through `tmux attach` (handoff-attach). The remote
-# extension sees HANDOFF_JOINED: the briefing says the user is present, and pi quits
+# Same namespace and session file as detach-run, but interactive: pi draws in the
+# tmux pane, and the user types through `tmux attach` (detach-attach). The remote
+# extension sees DETACH_JOINED: the briefing says the user is present, and pi quits
 # on its own once it is idle and no client is attached. The job is `joined` while
 # this runs (runner.pid is this script, so reply, pull and a new join see a run in
 # progress); when pi exits, the job is `done` with pi's last answer, or `needs_input`
-# if the agent asked something nobody answered, or `aborted` (handoff-stop).
+# if the agent asked something nobody answered, or `aborted` (detach-stop).
 # Not a Sprite service: a joined pi cannot resume without the user, so after an
 # environment restart the job is recorded `done` (fix_stale_joined) and joining again
 # starts a fresh pi on the same conversation.
@@ -17,13 +17,13 @@ set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-joined <jobId> [pi args...]}
+job=${1:?usage: detach-joined <jobId> [pi args...]}
 shift
-dir=$HANDOFF_STATE/$job
+dir=$DETACH_STATE/$job
 job_json=$dir/job.json
 status=$dir/status.json
 log=$dir/runner.log
-[ -f "$job_json" ] || { echo "handoff-joined: no job $job" >&2; sleep 5; exit 2; }
+[ -f "$job_json" ] || { echo "detach-joined: no job $job" >&2; sleep 5; exit 2; }
 
 note() { echo "== $(now) $*" >>"$log"; }
 get() { jq -r "$1 // empty" "$job_json"; }
@@ -38,8 +38,8 @@ if [ ! -d "$checkout" ]; then
 fi
 
 pid_record $$ "$dir/runner.pid"
-note "handoff-joined $job (pid $$)"
-hold_start "handoff-$job" "$job"
+note "detach-joined $job (pid $$)"
+hold_start "detach-$job" "$job"
 
 rc=
 on_exit() {
@@ -68,7 +68,7 @@ on_exit() {
   hold_stop
 }
 trap on_exit EXIT
-# A signal (handoff-stop, or tmux killing the session) waits for pi to exit, then the
+# A signal (detach-stop, or tmux killing the session) waits for pi to exit, then the
 # EXIT trap records the outcome.
 trap 'exit 143' TERM INT HUP
 
@@ -76,15 +76,15 @@ rm -f "$dir/question.json" "$dir/result.json" "$dir/stop"
 json_merge "$status" "$(jq -n --arg j "$job" --arg t "$(now)" \
   '{jobId:$j, state:"joined", runStartedAt:$t, runEndedAt:null, exitCode:null, error:null, question:null, lastAssistantText:null, interruptions:0}')"
 
-# As in handoff-run: root only for the namespace and the bind mount, then back to this
+# As in detach-run: root only for the namespace and the bind mount, then back to this
 # user; sudo resets the environment, so pass it explicitly (TERM for the TUI).
 inner='mkdir -p "$1" && mount --bind "$2" "$1" && cd "$3" && u=$4 g=$5 && shift 5 &&
   exec setpriv --reuid="$u" --regid="$g" --init-groups "$@"'
-sudo unshare --mount --propagation private -- bash -c "$inner" handoff \
+sudo unshare --mount --propagation private -- bash -c "$inner" detach \
   "$mount_at" "$checkout" "$folder" "$(id -u)" "$(id -g)" \
   env HOME="$HOME" USER="$(id -un)" PATH="$PATH" LANG="$LANG" LC_ALL="$LC_ALL" \
   TERM="${TERM:-xterm-256color}" COLORTERM="${COLORTERM:-truecolor}" \
-  HANDOFF_JOB_ID="$job" HANDOFF_DIR="$dir" HANDOFF_JOINED=1 HANDOFF_TMUX="$(join_session "$job")" \
-  pi --session "$dir/session.jsonl" -e "$HANDOFF_HOME/extension/index.ts" "$@"
+  DETACH_JOB_ID="$job" DETACH_DIR="$dir" HANDOFF_DIR="$dir" DETACH_JOINED=1 DETACH_TMUX="$(join_session "$job")" \
+  pi --session "$dir/session.jsonl" -e "$DETACH_HOME/extension/index.ts" "$@"
 rc=$?
 note "pi exit $rc"

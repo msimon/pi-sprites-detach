@@ -10,10 +10,10 @@ test("canJoin: finished jobs, and joined ones again; not running or pulled", () 
   for (const state of ["starting", "preparing", "running", "pulled"] as const) assert.equal(canJoin(job(state)), false);
 });
 
-test("attachCommand runs handoff-attach over sprite exec --tty", () => {
+test("attachCommand runs detach-attach over sprite exec --tty", () => {
   assert.equal(
     attachCommand({ jobId: "h3", sprite: "pi-handoff" }, "/Users/m/.local/bin/sprite"),
-    "/Users/m/.local/bin/sprite exec -s pi-handoff --tty -- /home/sprite/.pi-handoff/sprite/bin/handoff-attach h3",
+    "/Users/m/.local/bin/sprite exec -s pi-handoff --tty -- /home/sprite/.pi-sprites-detach/sprite/bin/detach-attach h3",
   );
 });
 

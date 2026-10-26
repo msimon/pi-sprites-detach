@@ -57,14 +57,14 @@ export function spriteBin(): string {
 }
 
 /** Marker for the one JSON line a Sprite script returns; `sprite exec` adds its own output lines. */
-export const JSON_MARKER = "@@handoff ";
+export const JSON_MARKER = "@@detach ";
 
 export interface SpriteExecOptions extends RunOptions {
   /** [local path, absolute remote path] pairs uploaded before the script runs. */
   files?: Array<[string, string]>;
 }
 
-/** Run a bash script on the Sprite: `bash -c <script> handoff <args...>`. */
+/** Run a bash script on the Sprite: `bash -c <script> detach <args...>`. */
 export function spriteExec(
   sprite: string,
   script: string,
@@ -74,13 +74,13 @@ export function spriteExec(
   const fileArgs = (options.files ?? []).flatMap(([local, remote]) => ["--file", `${local}:${remote}`]);
   return run(
     spriteBin(),
-    ["exec", "-s", sprite, "--no-stdin", ...fileArgs, "--", "bash", "-c", script, "handoff", ...args],
+    ["exec", "-s", sprite, "--no-stdin", ...fileArgs, "--", "bash", "-c", script, "detach", ...args],
     options,
   );
 }
 
 /**
- * Run a Sprite script that prints one `@@handoff <json>` line, and parse it.
+ * Run a Sprite script that prints one `@@detach <json>` line, and parse it.
  * Keep the JSON small: exec stdout is not reliable for bulk data (S5).
  */
 export async function spriteJson<T>(

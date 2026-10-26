@@ -10,7 +10,7 @@ const job = {
   jobId: "h9",
   protocol: "git",
   folder: "/Users/m/repo",
-  jobBranch: "feat-handoff-1",
+  jobBranch: "feat-detach-1",
   baseBranch: "feat",
 } as LocalJob;
 const way = (kind: WayBack["kind"], text: string): WayBack => ({ kind, text, where: "x" });
@@ -28,7 +28,7 @@ test("pr: the folder does not have it until the PR is merged", () => {
 test("pending or manual: on origin, why, and do not merge it yourself", () => {
   for (const kind of ["pending", "manual"] as const) {
     const text = returnBriefing(job, undefined, way(kind, "Not brought into /Users/m/repo: it is on main, not feat."));
-    assert.match(text, /fetched here as origin\/feat-handoff-1; the working directory \/Users\/m\/repo does not have it\. Not brought into .* Do not merge it yourself unless the user asks\./);
+    assert.match(text, /fetched here as origin\/feat-detach-1; the working directory \/Users\/m\/repo does not have it\. Not brought into .* Do not merge it yourself unless the user asks\./);
   }
 });
 

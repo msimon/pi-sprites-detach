@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { emitJson, run, spriteJson, spritePull } from "./exec.ts";
 import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
-import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
-import { importSession, stopJob } from "./pull.ts";
+import { REMOTE_DETACH_HOME, REMOTE_STATE } from "./paths.ts";
+import { importSession, stopJob, syncFirst } from "./pull.ts";
 import { cleanSprite } from "./runtime.ts";
 
 /** Any job still on the Sprite can be dropped; a run in progress is stopped first. */
@@ -39,14 +39,14 @@ export interface DropResult {
 export interface DropSprite {
   /** Whether a run is alive, and whether the session file is there. */
   inspect: (job: LocalJob) => Promise<{ running: boolean; session: boolean }>;
-  /** Stop the run (handoff-stop, as abort does). */
+  /** Stop the run (detach-stop, as abort does). */
   stop: (job: LocalJob) => Promise<void>;
   download: (job: LocalJob, to: string) => Promise<void>;
   clean: (job: LocalJob) => Promise<void>;
 }
 
 const INSPECT = `
-source "${REMOTE_HANDOFF_HOME}/bin/lib.sh"
+source "${REMOTE_DETACH_HOME}/bin/lib.sh"
 j=$1
 running=false; runner_alive "$j" && running=true
 session=false; [ -f "${REMOTE_STATE}/$j/session.jsonl" ] && session=true
@@ -54,7 +54,10 @@ ${emitJson("{running:$r, session:$s}", '--argjson r "$running" --argjson s "$ses
 `;
 
 export const spriteOps: DropSprite = {
-  inspect: (job) => spriteJson(job.sprite, INSPECT, [job.jobId], { timeoutMs: 60_000 }),
+  inspect: async (job) => {
+    await syncFirst(job.sprite);
+    return spriteJson(job.sprite, INSPECT, [job.jobId], { timeoutMs: 60_000 });
+  },
   stop: async (job) => {
     await stopJob(job);
   },
@@ -91,7 +94,7 @@ export async function dropJob(
     if (found.running) throw new Error(`${job.jobId}'s run did not stop; nothing was dropped`);
   }
 
-  const tmp = await mkdtemp(join(tmpdir(), `pi-handoff-drop-${job.jobId}-`));
+  const tmp = await mkdtemp(join(tmpdir(), `pi-detach-drop-${job.jobId}-`));
   try {
     // Download first: a failure there stops the drop before anything is deleted.
     const downloaded = found.session ? join(tmp, "session.jsonl") : undefined;

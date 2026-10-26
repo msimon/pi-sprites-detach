@@ -1,17 +1,17 @@
 #!/bin/bash
-# handoff-pull <jobId> [--abort]: get a job ready to be brought back to the laptop.
+# detach-pull <jobId> [--abort]: get a job ready to be brought back to the laptop.
 #
 # Refuses while a run is in progress unless --abort, which stops it first. For a git
 # job, commits whatever the agent left uncommitted in its checkout and pushes the job
 # branch, so origin has all of the work. Deletes nothing: the laptop downloads the
-# session file next and only then runs handoff-clean.
+# session file next and only then runs detach-clean.
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-pull <jobId> [--abort]}
+job=${1:?usage: detach-pull <jobId> [--abort]}
 abort=${2:-}
-dir=$HANDOFF_STATE/$job
+dir=$DETACH_STATE/$job
 job_json=$dir/job.json
 status=$dir/status.json
 [ -f "$job_json" ] || { echo "no job $job on this Sprite" >&2; exit 2; }
@@ -21,7 +21,7 @@ if runner_alive "$job"; then
     emit "$(jq -c '{refused:"running", status:.}' "$status")"
     exit 0
   fi
-  "$HANDOFF_HOME/bin/handoff-stop" "$job" >/dev/null || { echo "could not stop $job" >&2; exit 1; }
+  "$DETACH_HOME/bin/detach-stop" "$job" >/dev/null || { echo "could not stop $job" >&2; exit 1; }
 fi
 
 get() { jq -r "$1 // empty" "$job_json"; }

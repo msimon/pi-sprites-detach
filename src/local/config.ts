@@ -1,4 +1,4 @@
-// ~/.pi-handoff/config.json. The first run writes the defaults, so everything that
+// ~/.pi-sprites-detach/config.json. The first run writes the defaults, so everything that
 // syncs or is skipped is visible and editable in one file.
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -39,7 +39,7 @@ export interface HandoffConfig {
     exclude: string[];
     /**
      * Same matching, swapped for another source: `npm:…`, `git:…`, or a file of your
-     * own (`~/…`), which must be under sync.paths, e.g. in ~/.pi-handoff/extensions/.
+     * own (`~/…`), which must be under sync.paths, e.g. in ~/.pi-sprites-detach/extensions/.
      */
     replace: Record<string, string>;
     /** Programs an extension needs that pi does not install, kept at the laptop's version. */
@@ -62,7 +62,7 @@ export const DEFAULT_CONFIG: HandoffConfig = {
       "~/.pi/agent/trust.json",
       "~/.agents/skills",
       "~/.pi/web-search.json",
-      "~/.pi-handoff/extensions",
+      "~/.pi-sprites-detach/extensions",
     ],
     exclude: ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"],
   },
@@ -71,7 +71,7 @@ export const DEFAULT_CONFIG: HandoffConfig = {
     // it is excluded here; loaded from a repo path it is outside sync.paths anyway.
     exclude: ["msimon/pi-handoff"],
     // Does nothing unless that package is installed; it hides its tool without a UI (S3).
-    replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts" },
+    replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-sprites-detach/extensions/remote-ask.ts" },
     // Filled in by the setup prompt, from the recipes the laptop has the tool for.
     tools: [],
   },
@@ -86,7 +86,7 @@ export interface LoadedConfig {
 
 /**
  * Read the config. On first run, write the defaults and copy the example user
- * extensions they refer to into ~/.pi-handoff/extensions/ (never overwriting); from
+ * extensions they refer to into ~/.pi-sprites-detach/extensions/ (never overwriting); from
  * then on both are Marc's to edit. Missing keys take the defaults.
  */
 export async function loadConfig(): Promise<LoadedConfig> {
@@ -120,15 +120,23 @@ export async function loadConfig(): Promise<LoadedConfig> {
   };
 }
 
-/** `copyProjectFiles` for a repo: `<repo>/.pi-handoff.json` overrides the config. */
+/**
+ * `copyProjectFiles` for a repo: `<repo>/.pi-sprites-detach.json` overrides the config
+ * (`.pi-handoff.json`, the name before the rename, still works when the new one is absent).
+ */
 export async function projectFilePatterns(repoRoot: string, config: HandoffConfig): Promise<string[]> {
-  const file = join(repoRoot, ".pi-handoff.json");
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch {
-    return config.copyProjectFiles;
+  let file = join(repoRoot, ".pi-sprites-detach.json");
+  let text: string | undefined;
+  for (const name of [".pi-sprites-detach.json", ".pi-handoff.json"]) {
+    try {
+      text = await readFile(join(repoRoot, name), "utf8");
+      file = join(repoRoot, name);
+      break;
+    } catch {
+      // Not there: the next name, then the config.
+    }
   }
+  if (text === undefined) return config.copyProjectFiles;
   try {
     const project = JSON.parse(text) as { copyProjectFiles?: unknown };
     if (Array.isArray(project.copyProjectFiles)) return project.copyProjectFiles.map(String);

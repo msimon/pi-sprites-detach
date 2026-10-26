@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { spriteJson } from "./exec.ts";
 import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
-import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
+import { REMOTE_DETACH_HOME, REMOTE_STATE } from "./paths.ts";
 import { mergeStatus, type RemoteStatus } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
@@ -38,14 +38,14 @@ export async function replyJob(job: LocalJob, text: string, progress: (text: str
   const report = await syncSprite(config, job.sprite, progress);
 
   progress("starting the run…");
-  const tmp = await mkdtemp(join(tmpdir(), `pi-handoff-reply-${job.jobId}-`));
+  const tmp = await mkdtemp(join(tmpdir(), `pi-detach-reply-${job.jobId}-`));
   try {
     const local = join(tmp, "prompt.txt");
     await writeFile(local, text);
     const remote = `${REMOTE_STATE}/incoming/reply-${job.jobId}-${Date.now()}.txt`;
     const result = await spriteJson<ReplyResult>(
       job.sprite,
-      `exec "${REMOTE_HANDOFF_HOME}/bin/handoff-reply" "$@"`,
+      `exec "${REMOTE_DETACH_HOME}/bin/detach-reply" "$@"`,
       [job.jobId, remote],
       { files: [[local, remote]], timeoutMs: 120_000 },
     );

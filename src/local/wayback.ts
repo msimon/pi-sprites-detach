@@ -182,7 +182,8 @@ async function oldSnapshot(gitOk: (args: string[]) => Promise<string>, baseHead:
   const first = (await gitOk(["rev-list", "--reverse", "--first-parent", `${baseHead}..${jobHead}`])).split("\n")[0];
   if (first === undefined || first === "") return undefined;
   const subject = await gitOk(["log", "-1", "--format=%s", first]);
-  return subject.startsWith("pi-handoff: snapshot") ? first : undefined;
+  // Either name: snapshots from before and after the rename.
+  return /^(pi-handoff|pi-sprites-detach): snapshot/.test(subject) ? first : undefined;
 }
 
 /**
@@ -207,7 +208,7 @@ async function applyFastForward(
   if (moved.code !== 0) return `${base} moved while the work was being brought back (${moved.stderr.trim()})`;
 
   const index = await indexFile(repoRoot);
-  const tmp = await mkdtemp(join(tmpdir(), "pi-handoff-wayback-"));
+  const tmp = await mkdtemp(join(tmpdir(), "pi-detach-wayback-"));
   const backup = join(tmp, "index");
   let hadIndex = true;
   try {

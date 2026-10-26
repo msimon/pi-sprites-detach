@@ -29,7 +29,7 @@ const texts = (entries: ReturnType<typeof jobOwnEntries>): string[] =>
   });
 
 test("jobOwnEntries: only what the job added after the handoff", () => {
-  const dir = mkdtempSync(join(tmpdir(), "pi-handoff-here-"));
+  const dir = mkdtempSync(join(tmpdir(), "pi-detach-here-"));
   try {
     const main = SessionManager.create(dir, dir);
     main.appendMessage(user("shared question"));

@@ -58,7 +58,7 @@ test("actions follow the state", () => {
   assert.deepEqual(jobActions(job("h1", "pulled")), []);
   assert.deepEqual(jobActions(job("h1", "pulled", { pulledSessionFile: "/tmp/x.jsonl" })), ["open", "here"]);
   // A pulled git job whose worktree and branches are still there can be cleaned up, until it is.
-  const git = { protocol: "git", jobBranch: "main-handoff-1", pulledSessionFile: "/tmp/x.jsonl" } as const;
+  const git = { protocol: "git", jobBranch: "main-detach-1", pulledSessionFile: "/tmp/x.jsonl" } as const;
   assert.deepEqual(jobActions(job("h1", "pulled", git)), ["open", "here", "cleanup"]);
   assert.deepEqual(jobActions(job("h1", "pulled", { ...git, cleanedAt: "2026-10-08" })), ["open", "here"]);
   // A pulled job whose work could not come back yet offers to try again, first.

@@ -1,14 +1,14 @@
 // /handoff watch: follow a job's run live, or replay its last one, in a read-only
-// full-screen view. handoff-watch on the Sprite prints pi's JSON events; this process
+// full-screen view. detach-watch on the Sprite prints pi's JSON events; this process
 // reads them over `sprite exec` and a Transcript turns them into what is drawn. Closing
-// the view kills the `sprite exec`, which ends the stream (and handoff-watch with it).
+// the view kills the `sprite exec`, which ends the stream (and detach-watch with it).
 
 import { type ChildProcess, spawn } from "node:child_process";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { spriteBin } from "./exec.ts";
 import { ACTIVE_STATES, conversationName, isOffSprite, type LocalJob } from "./jobs.ts";
-import { REMOTE_HANDOFF_HOME } from "./paths.ts";
+import { REMOTE_DETACH_HOME } from "./paths.ts";
 import { renderTranscript, type Style, Transcript } from "./transcript.ts";
 
 /** A job's events are on the Sprite until it is pulled or dropped; a joined pi is interactive, not streamed. */
@@ -21,7 +21,7 @@ export interface WatchStream {
   stop(): void;
 }
 
-/** Run handoff-watch on the Sprite; each line of its output goes to `onLine`. */
+/** Run detach-watch on the Sprite; each line of its output goes to `onLine`. */
 export function startWatchStream(
   job: LocalJob,
   onLine: (line: string) => void,
@@ -29,7 +29,7 @@ export function startWatchStream(
 ): WatchStream {
   const child: ChildProcess = spawn(
     spriteBin(),
-    ["exec", "-s", job.sprite, "--no-stdin", "--", `${REMOTE_HANDOFF_HOME}/bin/handoff-watch`, job.jobId],
+    ["exec", "-s", job.sprite, "--no-stdin", "--", `${REMOTE_DETACH_HOME}/bin/detach-watch`, job.jobId],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
   let buffer = "";
@@ -105,7 +105,7 @@ export class WatchView implements Component {
     this.#requestRender();
   }
 
-  /** The stream ended without handoff-watch's own end line: say why, so the view is not left silent. */
+  /** The stream ended without detach-watch's own end line: say why, so the view is not left silent. */
   streamClosed({ code, stderr, stopped }: { code: number | null; stderr: string; stopped: boolean }): void {
     if (stopped || this.#transcript.phase === "ended") return;
     const detail = stderr === "" ? `exit code ${code ?? "?"}` : stderr.split("\n").slice(-2).join(" ");

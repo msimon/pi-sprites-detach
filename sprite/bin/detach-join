@@ -1,23 +1,23 @@
 #!/bin/bash
-# handoff-join <jobId> [--abort] [-- pi args...]: start interactive pi on a job's
-# conversation, in the tmux session handoff-<jobId> (/handoff join). The laptop then
-# attaches with handoff-attach over `sprite exec --tty`. One small JSON result:
+# detach-join <jobId> [--abort] [-- pi args...]: start interactive pi on a job's
+# conversation, in the tmux session detach-<jobId> (/handoff join). The laptop then
+# attaches with detach-attach over `sprite exec --tty`. One small JSON result:
 #   {joined:"started"|"already", status}   pi is running in the session
 #   {refused:"running", status}            a headless run is in progress (no --abort)
 #   {missing:true}                         no such job on this Sprite
-# --abort stops the headless run first (handoff-stop). Starting a joined pi needs the
+# --abort stops the headless run first (detach-stop). Starting a joined pi needs the
 # job's checkout, so a job must have run once (every handed-off job has). Arguments
 # after `--` go to pi (a model, say).
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-join <jobId> [--abort] [-- pi args...]}
+job=${1:?usage: detach-join <jobId> [--abort] [-- pi args...]}
 shift
 abort=
 if [ "${1:-}" = --abort ]; then abort=--abort; shift; fi
 [ "${1:-}" = -- ] && shift
-dir=$HANDOFF_STATE/$job
+dir=$DETACH_STATE/$job
 status=$dir/status.json
 session=$(join_session "$job")
 [ -f "$dir/job.json" ] || { emit '{"missing":true}'; exit 0; }
@@ -32,12 +32,12 @@ if runner_alive "$job"; then
     emit "$(jq -c '{refused:"running", status:.}' "$status")"
     exit 0
   fi
-  "$HANDOFF_HOME/bin/handoff-stop" "$job" >/dev/null || { echo "could not stop $job" >&2; exit 1; }
+  "$DETACH_HOME/bin/detach-stop" "$job" >/dev/null || { echo "could not stop $job" >&2; exit 1; }
 fi
 
 # A wide default size until a client attaches; tmux then follows the client's size.
 # No status bar: the pane should look like pi on the laptop.
-tmux new-session -d -s "$session" -x 200 -y 50 "$HANDOFF_HOME/bin/handoff-joined" "$job" "$@" || exit 1
+tmux new-session -d -s "$session" -x 200 -y 50 "$DETACH_HOME/bin/detach-joined" "$job" "$@" || exit 1
 tmux set-option -t "$session" status off >/dev/null
 for _ in $(seq 50); do
   [ "$(jq -r '.state // empty' "$status" 2>/dev/null)" = joined ] && break

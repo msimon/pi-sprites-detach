@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { expandHome, HOME, SPRITE_HOME } from "./paths.ts";
 import { type RewriteContext, rewriteSettings } from "./settings.ts";
 
-const ask = `${HOME}/.pi-handoff/extensions/remote-ask.ts`;
+const ask = `${HOME}/.pi-sprites-detach/extensions/remote-ask.ts`;
 const rules = {
   exclude: ["pi-handoff/src", "pi-reminders"],
-  replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-handoff/extensions/remote-ask.ts", "npm:old-thing": "npm:new-thing" },
+  replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-sprites-detach/extensions/remote-ask.ts", "npm:old-thing": "npm:new-thing" },
 };
 const context = (synced: string[], existing: string[] = synced): RewriteContext => ({
   isSynced: (path) => synced.includes(path),
@@ -25,7 +25,7 @@ test("a package replaced by a file moves to extensions; a source stays a package
   );
   assert.deepEqual(errors, []);
   assert.deepEqual(settings.packages, ["npm:pi-lens", { source: "npm:new-thing", extensions: ["x"] }]);
-  assert.deepEqual(settings.extensions, [`${SPRITE_HOME}/.pi-handoff/extensions/remote-ask.ts`]);
+  assert.deepEqual(settings.extensions, [`${SPRITE_HOME}/.pi-sprites-detach/extensions/remote-ask.ts`]);
   assert.equal(changes.length, 2);
 });
 

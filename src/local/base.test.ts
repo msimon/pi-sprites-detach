@@ -8,7 +8,7 @@ import { after, test } from "node:test";
 import { g } from "./git-fixture.ts";
 import { CANCEL_TO_PULL, CONTINUE_WITHOUT_PR, HandoffCancelledError, prepareBase, type GitInfo } from "./git.ts";
 
-const root = mkdtempSync(join(tmpdir(), "pi-handoff-base-test-"));
+const root = mkdtempSync(join(tmpdir(), "pi-detach-base-test-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 let count = 0;
 

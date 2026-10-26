@@ -1,5 +1,5 @@
-// The job description the laptop writes to ~/.handoff/<jobId>/job.json on the Sprite.
-// Shared by the local extension (writes it), handoff-run (reads it with jq) and the
+// The job description the laptop writes to ~/.detach/<jobId>/job.json on the Sprite.
+// Shared by the local extension (writes it), detach-run (reads it with jq) and the
 // remote extension (builds the briefing from it). Lives under src/remote because the
 // remote extension is copied to the Sprite on its own and must not import from src/local.
 

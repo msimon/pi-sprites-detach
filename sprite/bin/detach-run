@@ -1,10 +1,10 @@
 #!/bin/bash
-# handoff-run <jobId>: one run of a handed-off job, as the Sprite service handoff-<jobId>.
+# detach-run <jobId>: one run of a handed-off job, as the Sprite service detach-<jobId>.
 #
 # Prepares the job's checkout on the first run, then runs pi headless on the job's
 # session file inside a mount namespace that shows the checkout at the laptop path,
-# under a Tasks API hold. The outcome lands in ~/.handoff/<jobId>/status.json, which
-# the laptop polls. Started by handoff-start as a Sprite service, never inside one
+# under a Tasks API hold. The outcome lands in ~/.detach/<jobId>/status.json, which
+# the laptop polls. Started by detach-start as a Sprite service, never inside one
 # sprite exec: a dropped exec session would kill it.
 #
 # Recovery: the service stays registered for the whole run, so if the Sprite
@@ -13,20 +13,20 @@
 # over, pi continues the conversation with RESUME_PROMPT. pi killed by a signal while
 # this script lives is resumed the same way. MAX_INTERRUPTIONS per run, then `error`.
 # Every intended ending deletes the service: the end of the run here, an abort in
-# handoff-stop (which leaves a `stop` marker first).
+# detach-stop (which leaves a `stop` marker first).
 #
-# Inputs in ~/.handoff/<jobId>/: job.json (written by the laptop), session.jsonl,
+# Inputs in ~/.detach/<jobId>/: job.json (written by the laptop), session.jsonl,
 # prompt.txt, and files.tgz (copyProjectFiles, optional).
 set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-run <jobId>}
-dir=$HANDOFF_STATE/$job
+job=${1:?usage: detach-run <jobId>}
+dir=$DETACH_STATE/$job
 job_json=$dir/job.json
 status=$dir/status.json
 if [ ! -f "$job_json" ]; then
-  echo "handoff-run: no job $job" >&2
+  echo "detach-run: no job $job" >&2
   service_delete "$job"
   exit 2
 fi
@@ -35,7 +35,7 @@ MAX_INTERRUPTIONS=2
 RESUME_PROMPT="Your previous run was interrupted before it finished (the Sprite restarted or the process was killed). Check the current state of the work (git status, the files you were changing, tests) and continue the task from where it stopped."
 
 exec >>"$dir/runner.log" 2>&1
-echo "== $(now) handoff-run $job (pid $$)"
+echo "== $(now) detach-run $job (pid $$)"
 
 while pid_alive "$dir/runner.pid"; do
   echo "another runner is alive (pid $(pid_of "$dir/runner.pid")); waiting"
@@ -59,7 +59,7 @@ fail() {
   exit 1
 }
 
-# A TERM with the stop marker is an abort (handoff-stop). Any other TERM (the Sprite
+# A TERM with the stop marker is an abort (detach-stop). Any other TERM (the Sprite
 # environment going down) leaves the status and the service alone, so the runtime
 # starts this script again and the run resumes.
 on_term() {
@@ -87,11 +87,11 @@ on_exit() {
   fi
   # Last: deleting the service stops this process. Detached, so the request is made
   # even if the runtime signals this process group first.
-  setsid "$SPRITE_ENV" services delete "handoff-$job" >/dev/null 2>&1 </dev/null &
+  setsid "$SPRITE_ENV" services delete "detach-$job" >/dev/null 2>&1 </dev/null &
 }
 
 # What kind of start this is: a new run (no status yet, or `starting` from
-# handoff-reply), a resumed one (the previous runner died mid-run), or a stray restart
+# detach-reply), a resumed one (the previous runner died mid-run), or a stray restart
 # after the run had already ended.
 prev=$(status_field .state)
 case $prev in
@@ -105,7 +105,7 @@ case $prev in
     ;;
 esac
 
-hold_start "handoff-$job" "$job"
+hold_start "detach-$job" "$job"
 trap on_exit EXIT
 trap on_term TERM INT HUP
 
@@ -113,7 +113,7 @@ trap on_term TERM INT HUP
 npm_cache_dir() {
   local lock=$checkout/package-lock.json
   [ -n "$repo_key" ] && [ -f "$lock" ] || return 1
-  echo "$HANDOFF_STATE/cache/npm/$repo_key/$(sha256sum "$lock" | cut -c1-16)"
+  echo "$DETACH_STATE/cache/npm/$repo_key/$(sha256sum "$lock" | cut -c1-16)"
 }
 
 npm_cache_restore() {
@@ -173,11 +173,11 @@ prepare() {
 run_pi() {
   local inner='mkdir -p "$1" && mount --bind "$2" "$1" && cd "$3" && u=$4 g=$5 && shift 5 &&
     exec setpriv --reuid="$u" --regid="$g" --init-groups "$@"'
-  sudo unshare --mount --propagation private -- bash -c "$inner" handoff \
+  sudo unshare --mount --propagation private -- bash -c "$inner" detach \
     "$mount_at" "$checkout" "$folder" "$(id -u)" "$(id -g)" \
     env HOME="$HOME" USER="$(id -un)" PATH="$PATH" LANG="$LANG" LC_ALL="$LC_ALL" \
-    HANDOFF_JOB_ID="$job" HANDOFF_DIR="$dir" \
-    pi -p --mode json --session "$dir/session.jsonl" -e "$HANDOFF_HOME/extension/index.ts" \
+    DETACH_JOB_ID="$job" DETACH_DIR="$dir" HANDOFF_DIR="$dir" \
+    pi -p --mode json --session "$dir/session.jsonl" -e "$DETACH_HOME/extension/index.ts" \
     "$1" \
     >>"$dir/events.jsonl"
 }

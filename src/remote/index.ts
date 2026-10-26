@@ -1,9 +1,9 @@
-// pi-handoff remote extension, loaded only on the Sprite by handoff-run
-// (`pi -e ~/.pi-handoff/sprite/extension/index.ts`). Does nothing outside a handoff run.
+// pi-handoff remote extension, loaded only on the Sprite by detach-run
+// (`pi -e ~/.pi-sprites-detach/sprite/extension/index.ts`). Does nothing outside a handoff run.
 //
 // - adds the remote briefing to the system prompt on every run
 // - records the final assistant text for the notification
-// - in a joined pi (/handoff join, HANDOFF_JOINED): the briefing says the user is
+// - in a joined pi (/handoff join, DETACH_JOINED): the briefing says the user is
 //   present, and pi quits once idle with nobody attached to its tmux session
 //
 // Asking the user is not built in: a user extension provides ask_user_question
@@ -20,9 +20,9 @@ import type { RemoteJob } from "./job.ts";
 const RESULT_MAX_CHARS = 4000;
 
 export default function handoffRemote(pi: ExtensionAPI): void {
-  const jobDir = process.env.HANDOFF_DIR;
-  if (process.env.HANDOFF_JOB_ID === undefined || jobDir === undefined) return;
-  const joined = process.env.HANDOFF_JOINED === "1";
+  const jobDir = process.env.DETACH_DIR;
+  if (process.env.DETACH_JOB_ID === undefined || jobDir === undefined) return;
+  const joined = process.env.DETACH_JOINED === "1";
 
   let job: RemoteJob;
   try {
@@ -34,10 +34,10 @@ export default function handoffRemote(pi: ExtensionAPI): void {
   }
 
   pi.on("before_agent_start", (event) => {
-    event.systemPromptOptions.sections.handoff_briefing = buildBriefing(job, detectInstallCommand(job), { joined });
+    event.systemPromptOptions.sections.detach_briefing = buildBriefing(job, detectInstallCommand(job), { joined });
   });
 
-  // The end of the turn. handoff-run reads this, and if its runner died before pi
+  // The end of the turn. detach-run reads this, and if its runner died before pi
   // exited, it is all there is to tell how the turn ended: hence `error`.
   pi.on("agent_end", (event) => {
     const text = lastAssistantText(event.messages);
@@ -46,7 +46,7 @@ export default function handoffRemote(pi: ExtensionAPI): void {
     writeFileSync(join(jobDir, "result.json"), `${JSON.stringify(result)}\n`);
   });
 
-  const tmuxSession = process.env.HANDOFF_TMUX;
+  const tmuxSession = process.env.DETACH_TMUX;
   if (joined && tmuxSession !== undefined) watchIdle(pi, jobDir, tmuxSession);
 }
 

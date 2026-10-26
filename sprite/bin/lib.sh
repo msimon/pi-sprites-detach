@@ -1,18 +1,43 @@
-# Shared helpers for pi-handoff's Sprite scripts. Sourced, never run directly.
+# Shared helpers for pi-sprites-detach's Sprite scripts. Sourced, never run directly.
 
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:/.sprite/bin:$PATH"
 
 # shellcheck disable=SC2034  # used by the scripts that source this file
-HANDOFF_STATE=$HOME/.handoff
+DETACH_STATE=$HOME/.detach
 # shellcheck disable=SC2034
-HANDOFF_HOME=$HOME/.pi-handoff/sprite
+DETACH_HOME=$HOME/.pi-sprites-detach/sprite
 SPRITE_ENV=/.sprite/bin/sprite-env
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # emit <json>: the one result line the laptop reads (src/local/exec.ts JSON_MARKER).
-emit() { printf '%s%s\n' '@@handoff ' "$1"; }
+emit() { printf '%s%s\n' '@@detach ' "$1"; }
+
+# migrate_legacy_state: state and files from before the rename (pi-handoff). ~/.handoff
+# moves into ~/.detach, entry by entry (the laptop may have uploaded into ~/.detach
+# already; an entry both have stays the new one, and sync's own state is just redone),
+# and ~/.pi-handoff goes: the old build, and the synced files the laptop now sends to
+# ~/.pi-sprites-detach. Not while anything from the old build still runs, which would
+# lose its state under it: the next sync tries again.
+migrate_legacy_state() {
+  local old=$HOME/.handoff entry
+  [ -d "$old" ] || [ -d "$HOME/.pi-handoff" ] || return 0
+  if pgrep -f '\.pi-handoff/sprite/bin/' >/dev/null 2>&1; then
+    echo "kept the state from before the rename: a run from then is still going"
+    return 0
+  fi
+  if [ -d "$old" ]; then
+    mkdir -p "$DETACH_STATE"
+    for entry in "$old"/* "$old"/.[!.]*; do
+      [ -e "$entry" ] || continue
+      [ -e "$DETACH_STATE/$(basename "$entry")" ] || mv "$entry" "$DETACH_STATE/"
+    done
+    rm -rf "$old"
+  fi
+  rm -rf "$HOME/.pi-handoff"
+  echo "moved the state from before the rename into $DETACH_STATE"
+}
 
 # Pid files hold "<pid> <start time>". Pids start again from low numbers when the
 # Sprite environment restarts, so a bare pid could name an unrelated process.
@@ -32,27 +57,27 @@ pid_alive() {
 }
 pid_of() { cut -d' ' -f1 "$1" 2>/dev/null; }
 
-# Each run is the Sprite service handoff-<jobId> while it lasts (handoff-start), so the
+# Each run is the Sprite service detach-<jobId> while it lasts (detach-start), so the
 # runtime starts it again after an environment restart or a killed runner.
-service_registered() { "$SPRITE_ENV" services get "handoff-$1" >/dev/null 2>&1; }
-service_delete() { "$SPRITE_ENV" services delete "handoff-$1" >/dev/null 2>&1 || true; }
+service_registered() { "$SPRITE_ENV" services get "detach-$1" >/dev/null 2>&1; }
+service_delete() { "$SPRITE_ENV" services delete "detach-$1" >/dev/null 2>&1 || true; }
 
-# runner_alive <jobId>: whether the job's run is in progress: its handoff-run (or the
-# handoff-joined wrapper of a joined pi) is alive, or its service is still registered
+# runner_alive <jobId>: whether the job's run is in progress: its detach-run (or the
+# detach-joined wrapper of a joined pi) is alive, or its service is still registered
 # (the runtime is about to start it again).
 runner_alive() {
-  pid_alive "$HANDOFF_STATE/$1/runner.pid" || service_registered "$1"
+  pid_alive "$DETACH_STATE/$1/runner.pid" || service_registered "$1"
 }
 
-# The tmux session a joined pi runs in (handoff-join).
-join_session() { echo "handoff-$1"; }
+# The tmux session a joined pi runs in (detach-join).
+join_session() { echo "detach-$1"; }
 
 # fix_stale_joined <jobId>: a job still marked `joined` whose wrapper is gone (the
 # Sprite environment restarted, or it was killed hard) ended without recording it:
 # record `done` now, with the last answer pi wrote. A joined pi is not a service, so
 # nothing brings it back; joining again starts a fresh one on the same conversation.
 fix_stale_joined() {
-  local dir=$HANDOFF_STATE/$1 text
+  local dir=$DETACH_STATE/$1 text
   [ "$(jq -r '.state // empty' "$dir/status.json" 2>/dev/null)" = joined ] || return 0
   pid_alive "$dir/runner.pid" && return 0
   text=$(jq '.text // null' "$dir/result.json" 2>/dev/null || echo null)
@@ -63,13 +88,13 @@ fix_stale_joined() {
 }
 
 # job_pids <jobId>: this user's processes started for the job (pi and its tools), found
-# by the HANDOFF_JOB_ID handoff-run passes to pi. Not the runner itself.
+# by the DETACH_JOB_ID detach-run passes to pi. Not the runner itself.
 job_pids() {
   local p
   for p in /proc/[0-9]*; do
     # Other users' environ files cannot be read; the shell reports a failed `<`
     # itself, so the group, not tr, gets the 2>/dev/null.
-    if { tr '\0' '\n' <"$p/environ" | grep -qx "HANDOFF_JOB_ID=$1"; } 2>/dev/null; then
+    if { tr '\0' '\n' <"$p/environ" | grep -qx "DETACH_JOB_ID=$1"; } 2>/dev/null; then
       echo "${p#/proc/}"
     fi
   done

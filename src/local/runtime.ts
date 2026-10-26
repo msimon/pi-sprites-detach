@@ -25,10 +25,10 @@ import {
 } from "./jobs.ts";
 import { cmuxNotify } from "./notify.ts";
 import { buildOutcomeCard, OUTCOME_ENTRY, outcomeLabel } from "./outcome.ts";
-import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
+import { REMOTE_DETACH_HOME, REMOTE_STATE } from "./paths.ts";
 
 const POLL_MS = 45_000;
-const STATUS_KEY = "handoff";
+const STATUS_KEY = "detach";
 const BODY_MAX = 300;
 
 /** The fields of the Sprite's status.json the laptop uses. */
@@ -61,7 +61,7 @@ export function mergeStatus(job: LocalJob, status: RemoteStatus): LocalJob | und
  * recorded `done` first (fix_stale_joined), so the poll posts its card.
  */
 const READ_STATUS = `
-source "${REMOTE_HANDOFF_HOME}/bin/lib.sh"
+source "${REMOTE_DETACH_HOME}/bin/lib.sh"
 out='{}'
 for j in "$@"; do
   # An older Sprite build (before the next sync) has no such function.
@@ -73,11 +73,11 @@ ${emitJson("$o", `--argjson o "$out"`)}
 `;
 
 /**
- * Remove a pulled job from the Sprite (handoff-clean). Safe to repeat: a job already
+ * Remove a pulled job from the Sprite (detach-clean). Safe to repeat: a job already
  * gone is a no-op. Refused (throws) while a run is in progress.
  */
 export async function cleanSprite(job: LocalJob): Promise<void> {
-  await spriteJson(job.sprite, `exec "${REMOTE_HANDOFF_HOME}/bin/handoff-clean" "$@"`, [job.jobId], {
+  await spriteJson(job.sprite, `exec "${REMOTE_DETACH_HOME}/bin/detach-clean" "$@"`, [job.jobId], {
     timeoutMs: 120_000,
   });
 }

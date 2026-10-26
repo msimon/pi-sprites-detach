@@ -1,5 +1,5 @@
 #!/bin/bash
-# handoff-clean <jobId>: remove a pulled job from the Sprite (decision 9).
+# detach-clean <jobId>: remove a pulled job from the Sprite (decision 9).
 #
 # Deletes the job's state dir (session file, prompt, copied project files, logs), its
 # worktree and job root, and the job branch's local ref in the cached clone. The cached
@@ -9,11 +9,11 @@ set -uo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-job=${1:?usage: handoff-clean <jobId>}
-# Strict (h + base-36 counter): the id ends up in rm -rf paths below. Classes, not
-# a-z ranges, which can match uppercase depending on the locale.
-[[ $job =~ ^h[[:digit:][:lower:]]+$ ]] || { echo "bad job id: $job" >&2; exit 2; }
-dir=$HANDOFF_STATE/$job
+job=${1:?usage: detach-clean <jobId>}
+# Strict (d, or h before the rename, + a base-36 counter): the id ends up in rm -rf
+# paths below. Classes, not a-z ranges, which can match uppercase depending on the locale.
+[[ $job =~ ^[dh][[:digit:][:lower:]]+$ ]] || { echo "bad job id: $job" >&2; exit 2; }
+dir=$DETACH_STATE/$job
 job_root=$HOME/jobs/$job
 
 if runner_alive "$job"; then
@@ -36,5 +36,5 @@ if [ -f "$dir/job.json" ]; then
 fi
 
 rm -rf "$job_root" "$dir"
-"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/handoff-$job" >/dev/null 2>&1 || true
+"$SPRITE_ENV" curl -s -X DELETE "/v1/tasks/detach-$job" >/dev/null 2>&1 || true
 emit '{"cleaned":true}'
