@@ -50,7 +50,8 @@ export interface DetachConfig {
 }
 
 export const DEFAULT_CONFIG: DetachConfig = {
-  sprite: "pi-handoff",
+  // New installs only: the migration leaves an existing config's Sprite as it is.
+  sprite: "pi-sprites-detach",
   pr: "never",
   sync: {
     paths: [

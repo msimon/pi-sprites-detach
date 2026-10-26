@@ -203,7 +203,7 @@ async function highestJobBranch(info: GitInfo, prefix: string): Promise<number> 
 
 /**
  * Push a commit to a new branch on origin, `<base>-detach-<n>` with the next free n,
- * and return its name; no local branch is created. Two windows handing off from the
+ * and return its name; no local branch is created. Two windows detaching from the
  * same repo at the same moment must not share a branch, and their snapshot commits can
  * be identical (same tree, parent and second). So a push counts only if it created the
  * branch: the empty lease rejects one that exists with another commit, and git's

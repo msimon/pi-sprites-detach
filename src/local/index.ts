@@ -277,7 +277,7 @@ async function pushCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime,
         ...(ctx.hasUI ? { ask: (title: string, options: string[]) => ctx.ui.select(title, options) } : {}),
       },
       prompt,
-      progressTo(ctx, "Handing off"),
+      progressTo(ctx, "Detaching"),
     );
   } catch (error: unknown) {
     if (!(error instanceof DetachCancelledError)) throw error;
