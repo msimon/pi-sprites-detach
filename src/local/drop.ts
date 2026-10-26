@@ -4,10 +4,11 @@
 // (unless keepBranch), the Sprite is cleaned up, and the job becomes `dropped`: hidden
 // from the job list's "all", like a pulled job. The folder and its branches are untouched.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { emitJson, run, spriteJson, spritePull } from "./exec.ts";
+import { emitJson, existingFolder, run, spriteJson, spritePull } from "./exec.ts";
 import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
 import { REMOTE_DETACH_HOME, REMOTE_STATE } from "./paths.ts";
 import { importSession, stopJob, syncFirst } from "./pull.ts";
@@ -137,7 +138,7 @@ async function finishDrop(
     lines.push("Its conversation was no longer on the Sprite.");
   } else {
     progress("saving the conversation…");
-    sessionFile = await importSession(downloaded, job, job.folder, dropBriefing(job, branchLine), {
+    sessionFile = await importSession(downloaded, job, existingFolder(job.folder), dropBriefing(job, branchLine), {
       jobId: job.jobId,
       ...(branch === undefined ? {} : { jobBranch: branch }),
       where: "dropped",
@@ -171,6 +172,12 @@ async function finishDrop(
 
 /** Delete the job branch on origin and its fetched ref here. A branch already gone counts as deleted. */
 async function deleteJobBranch(folder: string, branch: string): Promise<{ ok: boolean; message: string }> {
+  if (!existsSync(folder)) {
+    return {
+      ok: false,
+      message: `${folder} no longer exists, so ${branch} is still on origin. To delete it, run \`git push origin --delete ${branch}\` in a clone of the repo.`,
+    };
+  }
   const top = await run("git", ["rev-parse", "--show-toplevel"], { cwd: folder });
   if (top.code !== 0) return { ok: false, message: `${folder} is no longer a git repository, so ${branch} is still on origin.` };
   const repoRoot = top.stdout.trim();

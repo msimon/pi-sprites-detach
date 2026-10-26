@@ -5,6 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { copyIndex, parseOrigin, projectPathspecs, pushNewJobBranch } from "./git.ts";
+import { existingFolder, MissingFolderError, run } from "./exec.ts";
+
+test("run in a folder that is gone says so, not 'spawn git ENOENT'", async () => {
+  const gone = join(tmpdir(), "pi-detach-no-such-folder", "deeper");
+  await assert.rejects(run("git", ["status"], { cwd: gone }), (error: unknown) => {
+    assert.ok(error instanceof MissingFolderError);
+    assert.match((error as Error).message, /no-such-folder\/deeper no longer exists/);
+    return true;
+  });
+  assert.equal(existingFolder(gone), tmpdir());
+});
 
 test("copyIndex keeps the index's timestamps, so git still re-checks racily clean entries", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-detach-index-test-"));

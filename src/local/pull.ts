@@ -18,7 +18,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { run, runOk, spriteJson, spritePull } from "./exec.ts";
+import { existingFolder, run, runOk, spriteJson, spritePull } from "./exec.ts";
 import { loadConfig } from "./config.ts";
 import { detectGit } from "./git.ts";
 import { syncSprite } from "./sync.ts";
@@ -109,7 +109,14 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
 
     let worktree: string | undefined;
     let wayBack: WayBack | undefined;
-    if (job.protocol === "git" && job.jobBranch !== undefined) {
+    if (job.protocol === "git" && job.jobBranch !== undefined && !existsSync(job.folder)) {
+      // The folder was deleted since: the conversation still comes back; the work stays on origin.
+      wayBack = {
+        kind: "manual",
+        where: `origin/${job.jobBranch}`,
+        text: `${job.folder} no longer exists, so the work was not brought back: it is on ${job.jobBranch} on origin.`,
+      };
+    } else if (job.protocol === "git" && job.jobBranch !== undefined) {
       progress(`fetching ${job.jobBranch}…`);
       worktree = await fetchJobBranch(job, job.jobBranch, options.worktree);
       if (worktree === undefined) {
@@ -124,7 +131,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     const sessionFile = await importSession(
       downloaded,
       job,
-      worktree ?? job.folder,
+      worktree ?? existingFolder(job.folder),
       returnBriefing(job, worktree, wayBack),
       pullDetails(job, worktree, wayBack),
     );

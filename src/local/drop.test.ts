@@ -189,6 +189,20 @@ test("no session file left on the Sprite: dropped without a conversation", async
   assert.match(lines.join(" "), /no longer on the Sprite/);
 });
 
+test("the job's folder no longer exists: dropped anyway, branch left on origin, conversation saved", async () => {
+  const f = setup("aborted");
+  rmSync(f.work, { recursive: true, force: true });
+  const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, f.sprite());
+  assert.equal(job.state, "dropped");
+  assert.equal(job.cleanedAt, undefined);
+  assert.equal(onOrigin(f.origin), true);
+  assert.match(lines.join(" "), /no longer exists, so feat-detach-1 is still on origin/);
+  assert.deepEqual(f.calls, ["download", "clean"]);
+  // Saved with a cwd that exists (the nearest parent), so pi can open it.
+  const saved = job.pulledSessionFile as string;
+  assert.equal(JSON.parse(readFileSync(saved, "utf8").split("\n")[0] as string).cwd, join(f.work, ".."));
+});
+
 test("a branch already gone from origin counts as deleted", async () => {
   const f = setup();
   g(f.work, "push", "-q", "origin", "--delete", "feat-detach-1");

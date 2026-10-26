@@ -71,6 +71,7 @@ async function summarize(ctx: ExtensionContext, entries: SessionEntry[]): Promis
 /** The job's commits since detaching and the files they change, from the fetched branch. */
 async function gitContext(job: LocalJob): Promise<string | undefined> {
   if (job.protocol !== "git" || job.jobBranch === undefined || job.baseHead === undefined) return undefined;
+  if (!existsSync(job.folder)) return `${job.folder} no longer exists, so the job's commits on ${job.jobBranch} could not be read here.`;
   // After a fast-forward the branch is deleted: its tip is recorded as jobHead.
   const tip = job.jobHead ?? `origin/${job.jobBranch}`;
   const range = `${job.baseHead}..${tip}`;

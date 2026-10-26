@@ -2,7 +2,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { HOME } from "./paths.ts";
 
 export interface RunResult {
@@ -18,8 +18,32 @@ export interface RunOptions {
   signal?: AbortSignal | undefined;
 }
 
-/** Run a program; never rejects for a non-zero exit, only for a missing binary or abort. */
+/**
+ * The folder, or its nearest ancestor that still exists: pi refuses to resume a
+ * session whose cwd is gone, and the job's folder may have been deleted since.
+ */
+export function existingFolder(folder: string): string {
+  let dir = folder;
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  return dir;
+}
+
+/** A command was to run in a folder that no longer exists (deleted, or a /tmp wiped by a reboot). */
+export class MissingFolderError extends Error {
+  readonly folder: string;
+  constructor(folder: string) {
+    super(`the folder ${folder} no longer exists`);
+    this.folder = folder;
+  }
+}
+
+/**
+ * Run a program; never rejects for a non-zero exit, only for a missing binary, a
+ * missing working folder (MissingFolderError) or abort. Node reports a missing cwd as
+ * "spawn <program> ENOENT", as if the program were missing: checked first instead.
+ */
 export function run(file: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  if (options.cwd !== undefined && !existsSync(options.cwd)) return Promise.reject(new MissingFolderError(options.cwd));
   return new Promise((resolve, reject) => {
     execFile(
       file,
