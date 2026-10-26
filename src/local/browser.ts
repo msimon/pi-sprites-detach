@@ -124,7 +124,7 @@ export const ACTION_LABELS: Record<JobAction, string> = {
   here: "Bring its context into this conversation",
   bringBack: "Bring its work into the folder again (fast-forward)",
   cleanup: "Clean up: remove its worktree and branch (merged work only)",
-  drop: "Drop: discard its work, keep its conversation",
+  drop: "Drop: discard its work (stops a run), keep its conversation",
 };
 
 export function jobActions(job: LocalJob): JobAction[] {
@@ -137,9 +137,9 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "starting":
     case "preparing":
     case "running":
-      return ["watch", "abort"];
+      return ["watch", "abort", "drop"];
     case "joined":
-      return ["join", "abort"];
+      return ["join", "abort", "drop"];
     case "pulled":
       return [
         ...(needsWayBack(job) ? (["bringBack"] as const) : []),

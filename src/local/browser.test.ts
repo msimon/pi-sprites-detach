@@ -53,8 +53,8 @@ test("ages read naturally", () => {
 test("actions follow the state", () => {
   const ended = ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull", "drop"];
   for (const state of ["done", "needs_input", "error", "aborted"] as const) assert.deepEqual(jobActions(job("h1", state)), ended);
-  assert.deepEqual(jobActions(job("h1", "running")), ["watch", "abort"]);
-  assert.deepEqual(jobActions(job("h1", "joined")), ["join", "abort"]);
+  assert.deepEqual(jobActions(job("h1", "running")), ["watch", "abort", "drop"]);
+  assert.deepEqual(jobActions(job("h1", "joined")), ["join", "abort", "drop"]);
   assert.deepEqual(jobActions(job("h1", "pulled")), []);
   assert.deepEqual(jobActions(job("h1", "pulled", { pulledSessionFile: "/tmp/x.jsonl" })), ["open", "here"]);
   // A pulled git job whose worktree and branches are still there can be cleaned up, until it is.

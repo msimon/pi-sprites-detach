@@ -252,9 +252,9 @@ Works on any job whose run has ended (done, needs input, failed, aborted): to an
 
 ### Drop: `/handoff drop [job] [--keep-branch]`
 
-For a finished job (done, needs input, failed, aborted) whose work is not wanted. Pulling it just to clear it would bring the work into the folder (the way back), so drop discards it instead:
+For a job whose work is not wanted, running or finished. Pulling a finished job just to clear it would bring the work into the folder (the way back), so drop discards it instead; on a running job it is abort and drop in one. Abort stays for stopping a run while keeping the work.
 
-1. Asks first (refuses without a UI). Refuses while a run is in progress on the Sprite (another window replied, or it is joined): abort it first.
+1. Asks first (refuses without a UI), saying when a run in progress will be stopped. With the user's yes, a run in progress is stopped (`handoff-stop`, as abort) and checked gone; a run that does not stop drops nothing. A run that started after the question (another window replied) is not stopped: the drop is refused, and dropping again asks again.
 2. Downloads the job's conversation first, so a failure stops the drop before anything is deleted.
 3. Deletes the job branch on origin and its fetched `origin/<jobBranch>` (`--keep-branch` keeps them; a branch already gone counts as deleted).
 4. Saves the conversation with the folder's sessions, cwd the folder, with a return briefing that says the work was discarded and where the branch is.

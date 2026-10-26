@@ -65,8 +65,13 @@ function setup(state: LocalJob["state"] = "done") {
   } as LocalJob;
 
   const calls: string[] = [];
-  const sprite = (over: Partial<DropSprite> = {}): DropSprite => ({
-    inspect: async () => ({ running: false, session: true }),
+  /** `running`: a run is alive on the Sprite until stop is called (`stops: false`: it survives). */
+  const sprite = (over: Partial<DropSprite> = {}, live = { running: false, stops: true }): DropSprite => ({
+    inspect: async () => ({ running: live.running, session: true }),
+    stop: async () => {
+      calls.push("stop");
+      if (live.stops) live.running = false;
+    },
     download: async (_job, to) => {
       calls.push("download");
       copyFileSync(remoteFile, to);
@@ -81,15 +86,17 @@ function setup(state: LocalJob["state"] = "done") {
 
 const onOrigin = (origin: string): boolean => has(origin, "refs/heads/feat-handoff-1");
 
-test("canDrop: a job whose run has ended, until it is off the Sprite", () => {
+test("canDrop: any job still on the Sprite, running ones too", () => {
   const j = (state: LocalJob["state"]) => ({ state }) as LocalJob;
-  for (const s of ["done", "needs_input", "error", "aborted"] as const) assert.equal(canDrop(j(s)), true, s);
-  for (const s of ["starting", "preparing", "running", "joined", "pulled", "dropped"] as const) assert.equal(canDrop(j(s)), false, s);
+  for (const s of ["starting", "preparing", "running", "joined", "done", "needs_input", "error", "aborted"] as const) {
+    assert.equal(canDrop(j(s)), true, s);
+  }
+  for (const s of ["pulled", "dropped"] as const) assert.equal(canDrop(j(s)), false, s);
 });
 
 test("drop: branch deleted, conversation saved with a briefing, Sprite cleaned, folder untouched", async () => {
   const f = setup("aborted");
-  const { job, lines } = await dropJob(f.job, { keepBranch: false }, quiet, f.sprite());
+  const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, f.sprite());
   assert.equal(job.state, "dropped");
   assert.ok(job.cleanedAt);
   assert.equal(job.cleanupPending, undefined);
@@ -117,19 +124,35 @@ test("drop: branch deleted, conversation saved with a briefing, Sprite cleaned, 
 
 test("--keep-branch: the branch stays on origin, and the job is not marked cleaned up", async () => {
   const f = setup();
-  const { job } = await dropJob(f.job, { keepBranch: true }, quiet, f.sprite());
+  const { job } = await dropJob(f.job, { keepBranch: true, stopRun: false }, quiet, f.sprite());
   assert.equal(job.state, "dropped");
   assert.equal(onOrigin(f.origin), true);
   assert.equal(job.cleanedAt, undefined);
 });
 
-test("a run in progress on the Sprite: refused, nothing changes", async () => {
+test("a running job: its run is stopped first, then it is dropped", async () => {
+  const f = setup("running");
+  const { job } = await dropJob(f.job, { keepBranch: false, stopRun: true }, quiet, f.sprite({}, { running: true, stops: true }));
+  assert.equal(job.state, "dropped");
+  assert.deepEqual(f.calls, ["stop", "download", "clean"]);
+  assert.equal(onOrigin(f.origin), false);
+});
+
+test("a run the user did not agree to stop (it started after they looked): refused, nothing changes", async () => {
   const f = setup();
-  const sprite = f.sprite({ inspect: async () => ({ running: true, session: true }) });
-  await assert.rejects(dropJob(f.job, { keepBranch: false }, quiet, sprite), DropRefusedError);
+  const sprite = f.sprite({}, { running: true, stops: true });
+  await assert.rejects(dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, sprite), DropRefusedError);
   assert.equal(onOrigin(f.origin), true);
   assert.deepEqual(f.calls, []);
   assert.equal(await readJob(f.job.jobId), undefined);
+});
+
+test("a run that does not stop: nothing is dropped", async () => {
+  const f = setup("running");
+  const sprite = f.sprite({}, { running: true, stops: false });
+  await assert.rejects(dropJob(f.job, { keepBranch: false, stopRun: true }, quiet, sprite), /did not stop; nothing was dropped/);
+  assert.equal(onOrigin(f.origin), true);
+  assert.deepEqual(f.calls, ["stop"]);
 });
 
 test("a failed download stops the drop before anything is deleted", async () => {
@@ -139,7 +162,7 @@ test("a failed download stops the drop before anything is deleted", async () => 
       throw new Error("network down");
     },
   });
-  await assert.rejects(dropJob(f.job, { keepBranch: false }, quiet, sprite), /network down/);
+  await assert.rejects(dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, sprite), /network down/);
   assert.equal(onOrigin(f.origin), true);
   assert.deepEqual(f.calls, []);
 });
@@ -151,7 +174,7 @@ test("a failed Sprite cleanup: dropped anyway, retried by the poll", async () =>
       throw new Error("sprite asleep");
     },
   });
-  const { job, lines } = await dropJob(f.job, { keepBranch: false }, quiet, sprite);
+  const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, sprite);
   assert.equal(job.state, "dropped");
   assert.equal(job.cleanupPending, true);
   assert.match(lines.join(" "), /sprite asleep.*retried/);
@@ -160,7 +183,7 @@ test("a failed Sprite cleanup: dropped anyway, retried by the poll", async () =>
 test("no session file left on the Sprite: dropped without a conversation", async () => {
   const f = setup();
   const sprite = f.sprite({ inspect: async () => ({ running: false, session: false }) });
-  const { job, lines } = await dropJob(f.job, { keepBranch: false }, quiet, sprite);
+  const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, sprite);
   assert.equal(job.state, "dropped");
   assert.equal(job.pulledSessionFile, undefined);
   assert.match(lines.join(" "), /no longer on the Sprite/);
@@ -169,12 +192,14 @@ test("no session file left on the Sprite: dropped without a conversation", async
 test("a branch already gone from origin counts as deleted", async () => {
   const f = setup();
   g(f.work, "push", "-q", "origin", "--delete", "feat-handoff-1");
-  const { job, lines } = await dropJob(f.job, { keepBranch: false }, quiet, f.sprite());
+  const { job, lines } = await dropJob(f.job, { keepBranch: false, stopRun: false }, quiet, f.sprite());
   assert.ok(job.cleanedAt);
   assert.match(lines.join(" "), /already gone from origin/);
 });
 
-test("a job that is not finished cannot be dropped", async () => {
-  const f = setup("running");
-  await assert.rejects(dropJob(f.job, { keepBranch: false }, quiet, f.sprite()), /only a job whose run has ended/);
+test("a job already off the Sprite cannot be dropped", async () => {
+  for (const state of ["pulled", "dropped"] as const) {
+    const f = setup(state);
+    await assert.rejects(dropJob(f.job, { keepBranch: false, stopRun: true }, quiet, f.sprite()), /no longer on the Sprite/);
+  }
 });

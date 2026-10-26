@@ -1,27 +1,32 @@
-// /handoff drop: discard a job whose run has ended (done, needs input, failed, aborted)
-// without bringing its work back. Its conversation is still saved with the folder's
-// sessions, so nothing said is lost; its job branch is deleted on origin (unless
-// keepBranch), the Sprite is cleaned up, and the job becomes `dropped`: hidden from
-// the job list's "all", like a pulled job. The folder and its branches are untouched.
+// /handoff drop: discard a job without bringing its work back. A run in progress is
+// stopped first (abort, then drop, in one). Its conversation is still saved with the
+// folder's sessions, so nothing said is lost; its job branch is deleted on origin
+// (unless keepBranch), the Sprite is cleaned up, and the job becomes `dropped`: hidden
+// from the job list's "all", like a pulled job. The folder and its branches are untouched.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { emitJson, run, spriteJson, spritePull } from "./exec.ts";
-import { isOffSprite, type LocalJob, writeJob, ACTIVE_STATES } from "./jobs.ts";
+import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
-import { importSession } from "./pull.ts";
+import { importSession, stopJob } from "./pull.ts";
 import { cleanSprite } from "./runtime.ts";
 
-/** A job can be dropped once its run has ended, until it is pulled or dropped. */
-export const canDrop = (job: LocalJob): boolean => !isOffSprite(job) && !ACTIVE_STATES.includes(job.state);
+/** Any job still on the Sprite can be dropped; a run in progress is stopped first. */
+export const canDrop = (job: LocalJob): boolean => !isOffSprite(job);
 
-/** A run is in progress on the Sprite (another window replied, or it is joined). */
+/** Whether dropping the job stops a run, as far as the laptop knows: say so when asking. */
+export const dropStopsRun = (job: LocalJob): boolean => ACTIVE_STATES.includes(job.state);
+
+/** A run is in progress that the user did not agree to stop (it started after they looked). */
 export class DropRefusedError extends Error {}
 
 export interface DropOptions {
   /** Keep the job branch on origin instead of deleting it. */
   keepBranch: boolean;
+  /** The user agreed to stop a run in progress. Without it, a live run refuses the drop. */
+  stopRun: boolean;
 }
 
 export interface DropResult {
@@ -34,6 +39,8 @@ export interface DropResult {
 export interface DropSprite {
   /** Whether a run is alive, and whether the session file is there. */
   inspect: (job: LocalJob) => Promise<{ running: boolean; session: boolean }>;
+  /** Stop the run (handoff-stop, as abort does). */
+  stop: (job: LocalJob) => Promise<void>;
   download: (job: LocalJob, to: string) => Promise<void>;
   clean: (job: LocalJob) => Promise<void>;
 }
@@ -48,6 +55,9 @@ ${emitJson("{running:$r, session:$s}", '--argjson r "$running" --argjson s "$ses
 
 export const spriteOps: DropSprite = {
   inspect: (job) => spriteJson(job.sprite, INSPECT, [job.jobId], { timeoutMs: 60_000 }),
+  stop: async (job) => {
+    await stopJob(job);
+  },
   download: (job, to) => spritePull(job.sprite, `${REMOTE_STATE}/${job.jobId}/session.jsonl`, to),
   clean: cleanSprite,
 };
@@ -68,11 +78,17 @@ export async function dropJob(
   progress: (text: string) => void,
   sprite: DropSprite = spriteOps,
 ): Promise<DropResult> {
-  if (!canDrop(job)) throw new Error(`${job.jobId} is ${job.state}: only a job whose run has ended can be dropped`);
+  if (!canDrop(job)) throw new Error(`${job.jobId} is ${job.state}: it is no longer on the Sprite`);
   progress("checking the Sprite…");
-  const found = await sprite.inspect(job);
+  let found = await sprite.inspect(job);
   if (found.running) {
-    throw new DropRefusedError(`${job.jobId} has a run in progress on the Sprite. Wait for it, or abort it, then drop it.`);
+    if (!options.stopRun) {
+      throw new DropRefusedError(`${job.jobId} has a run in progress now. Drop it again to stop the run and drop it.`);
+    }
+    progress("stopping the run…");
+    await sprite.stop(job);
+    found = await sprite.inspect(job);
+    if (found.running) throw new Error(`${job.jobId}'s run did not stop; nothing was dropped`);
   }
 
   const tmp = await mkdtemp(join(tmpdir(), `pi-handoff-drop-${job.jobId}-`));

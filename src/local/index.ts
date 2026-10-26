@@ -14,7 +14,7 @@
 //   /handoff cleanup [job] [--discard] [--remote]
 //                              remove a pulled job's worktree and branches from the laptop
 //   /handoff drop [job] [--keep-branch]
-//                              discard a finished job's work; keep its conversation
+//                              discard a job's work (stopping its run); keep its conversation
 //
 // A prompt for /handoff cannot start with one of these words; they are read as the
 // subcommand.
@@ -59,7 +59,7 @@ import { syncSprite } from "./sync.ts";
 import { registerHandoffTools } from "./tools.ts";
 import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from "./watch.ts";
 import { blockers, canCleanup, type CleanupOptions, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
-import { canDrop, type DropOptions, DropRefusedError, dropJob } from "./drop.ts";
+import { canDrop, type DropOptions, DropRefusedError, dropJob, dropStopsRun } from "./drop.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
@@ -80,7 +80,7 @@ const SUBCOMMANDS = [
     usage: "cleanup [job] [options]",
     description: "remove a pulled job's worktree and branch. Options: --discard, --remote",
   },
-  { name: "drop", usage: "drop [job] [--keep-branch]", description: "discard a finished job's work, keep its conversation" },
+  { name: "drop", usage: "drop [job] [--keep-branch]", description: "discard a job's work (stops a run), keep its conversation" },
 ] as const;
 const PULL_FLAGS = {
   "--here": "bring its context into this conversation",
@@ -579,7 +579,7 @@ async function runCleanup(
 
 const DROP_FLAGS = { "--keep-branch": "keep the job branch on origin" } as const;
 
-/** /handoff drop [job] [--keep-branch]: discard a finished job's work, keep its conversation. */
+/** /handoff drop [job] [--keep-branch]: discard a job's work (stopping its run), keep its conversation. */
 async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
   const unknown = [...flags].filter((f) => !Object.hasOwn(DROP_FLAGS, f));
@@ -588,7 +588,7 @@ async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
   if (ids.length > 1) throw new Error("drop one job at a time");
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, canDrop, "Drop which job?", "no finished job to drop; /handoff status lists them all")
+      ? await pickJob(ctx, canDrop, "Drop which job?", "no job to drop; /handoff status lists them all")
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
@@ -598,21 +598,29 @@ async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
 }
 
 /** Ask, then drop. Without a UI there is nobody to ask: refuse, as the work would be lost. */
-async function runDrop(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob, options: DropOptions): Promise<void> {
-  if (!canDrop(job)) throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: only a job whose run has ended can be dropped`);
+async function runDrop(
+  ctx: ExtensionCommandContext,
+  runtime: HandoffRuntime,
+  job: LocalJob,
+  options: Pick<DropOptions, "keepBranch">,
+): Promise<void> {
+  if (!canDrop(job)) throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: it is no longer on the Sprite`);
   if (!ctx.hasUI) throw new Error(`dropping ${job.jobId} discards its work and needs a confirmation; run it with the UI`);
+  // Asked about here, so a run that only started after this question is refused, not stopped.
+  const stopRun = dropStopsRun(job);
   let branch = "";
   if (job.jobBranch !== undefined) {
     branch = ` Its branch ${job.jobBranch} ${options.keepBranch ? "stays on" : "is deleted on"} origin.`;
   }
+  const run = stopRun ? " Its run in progress is stopped first." : "";
   const ok = await ctx.ui.confirm(
     `Drop ${job.jobId}?`,
-    `Discard the work of "${conversationName(job)}".${branch} Its conversation is saved here; your folder is not touched. It is removed from the Sprite.`,
+    `Discard the work of "${conversationName(job)}".${run}${branch} Its conversation is saved here; your folder is not touched. It is removed from the Sprite.`,
   );
   if (!ok) return;
   const progress = progressTo(ctx, `Dropping ${job.jobId}`);
   try {
-    const { lines } = await dropJob(job, options, progress);
+    const { lines } = await dropJob(job, { ...options, stopRun }, progress);
     ctx.ui.notify([`☁ Dropped job ${job.jobId}: ${conversationName(job)}`, ...lines].join("\n"), "info");
     await runtime.refreshStatusLine();
   } catch (error: unknown) {
