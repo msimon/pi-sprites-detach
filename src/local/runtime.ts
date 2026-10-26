@@ -13,6 +13,7 @@ import {
   claimNotification,
   conversationName,
   FILTER_LABELS,
+  isOffSprite,
   type JobFilter,
   type JobState,
   type LocalJob,
@@ -138,7 +139,7 @@ export class HandoffRuntime {
 
   /**
    * Read status.json for active jobs (this window's, or all) and react to changes;
-   * retry the Sprite cleanup of pulled jobs whose cleanup failed at pull.
+   * retry the Sprite cleanup of pulled or dropped jobs whose cleanup failed then.
    */
   async poll({ all }: { all: boolean }): Promise<void> {
     if (this.#ticking) return;
@@ -162,7 +163,7 @@ export class HandoffRuntime {
         }
       }
 
-      for (const job of listed.filter((j) => j.state === "pulled" && j.cleanupPending)) {
+      for (const job of listed.filter((j) => isOffSprite(j) && j.cleanupPending)) {
         try {
           await cleanSprite(job);
         } catch {

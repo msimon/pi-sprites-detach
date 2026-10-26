@@ -25,17 +25,20 @@ const job = (jobId: string, state: JobState, extra: Partial<LocalJob> = {}): Loc
 });
 
 test("waiting jobs first (needs input, failed, done), then running, then history; newest first within", () => {
+  // Newest by start time, not by id: ids are base 36 (h9 < ha) and may change prefix.
+  const at = (minutesAgo: number) => ({ startedAt: iso(minutesAgo) });
   const sorted = sortJobs([
-    job("h1", "done"),
-    job("h2", "running"),
-    job("h3", "pulled"),
-    job("h4", "done"),
-    job("h5", "needs_input"),
-    job("h6", "error"),
+    job("h9", "done", at(50)),
+    job("h2", "running", at(40)),
+    job("h3", "pulled", at(60)),
+    job("ha", "done", at(20)),
+    job("h5", "needs_input", at(30)),
+    job("h6", "error", at(30)),
+    job("h7", "dropped", at(5)),
   ]);
   assert.deepEqual(
     sorted.map((j) => j.jobId),
-    ["h5", "h6", "h4", "h1", "h2", "h3"],
+    ["h5", "h6", "ha", "h9", "h2", "h3", "h7"],
   );
 });
 
@@ -48,8 +51,8 @@ test("ages read naturally", () => {
 });
 
 test("actions follow the state", () => {
-  assert.deepEqual(jobActions(job("h1", "done")), ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull"]);
-  assert.deepEqual(jobActions(job("h1", "needs_input")), ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull"]);
+  const ended = ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull", "drop"];
+  for (const state of ["done", "needs_input", "error", "aborted"] as const) assert.deepEqual(jobActions(job("h1", state)), ended);
   assert.deepEqual(jobActions(job("h1", "running")), ["watch", "abort"]);
   assert.deepEqual(jobActions(job("h1", "joined")), ["join", "abort"]);
   assert.deepEqual(jobActions(job("h1", "pulled")), []);
@@ -61,6 +64,9 @@ test("actions follow the state", () => {
   // A pulled job whose work could not come back yet offers to try again, first.
   assert.deepEqual(jobActions(job("h1", "pulled", { ...git, wayBack: "pending" })), ["bringBack", "open", "here", "cleanup"]);
   assert.deepEqual(jobActions(job("h1", "pulled", { ...git, wayBack: "manual" })), ["open", "here", "cleanup"]);
+  // A dropped job: only its conversation, when it was saved.
+  assert.deepEqual(jobActions(job("h1", "dropped", git)), ["open"]);
+  assert.deepEqual(jobActions(job("h1", "dropped")), []);
 });
 
 test("plain list follows the filter", () => {

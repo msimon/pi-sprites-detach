@@ -7,6 +7,8 @@ import { JOBS_DIR } from "./paths.ts";
 /**
  * `starting` is local only (before the runner is up); the rest mirror status.json.
  * `joined`: interactive pi on the Sprite (/handoff join), until it quits.
+ * `pulled` and `dropped` are local only too: the job is off the Sprite, brought back
+ * or discarded (/handoff drop).
  */
 export type JobState =
   | "starting"
@@ -17,16 +19,21 @@ export type JobState =
   | "needs_input"
   | "error"
   | "aborted"
-  | "pulled";
+  | "pulled"
+  | "dropped";
 
 /** States in which a pi works on the job: polled, and reply and pull wait for them. */
 export const ACTIVE_STATES: readonly JobState[] = ["starting", "preparing", "running", "joined"];
+
+/** States of a job that is no longer on the Sprite: nothing to reply to, join or watch. */
+export const OFF_SPRITE_STATES: readonly JobState[] = ["pulled", "dropped"];
+export const isOffSprite = (job: { state: JobState }): boolean => OFF_SPRITE_STATES.includes(job.state);
 
 /** The states of a headless run, before it ends: what the `running` filter shows. */
 const RUNNING_STATES: readonly JobState[] = ["starting", "preparing", "running"];
 
 /** Job browser filters, one per state (running groups its first seconds). */
-export const JOB_FILTERS = ["all", "running", "joined", "needs_input", "done", "failed", "aborted", "pulled"] as const;
+export const JOB_FILTERS = ["all", "running", "joined", "needs_input", "done", "failed", "aborted", "pulled", "dropped"] as const;
 export type JobFilter = (typeof JOB_FILTERS)[number];
 
 export const FILTER_LABELS: Record<JobFilter, string> = {
@@ -38,6 +45,7 @@ export const FILTER_LABELS: Record<JobFilter, string> = {
   failed: "failed",
   aborted: "aborted",
   pulled: "pulled",
+  dropped: "dropped",
 };
 
 /** What the status line counts: jobs still running or waiting to be pulled. */
@@ -46,7 +54,7 @@ export const STATUS_LINE_FILTERS: readonly JobFilter[] = ["running", "joined", "
 export function matchesFilter(job: { state: JobState }, filter: JobFilter): boolean {
   switch (filter) {
     case "all":
-      return job.state !== "pulled";
+      return !isOffSprite(job);
     case "running":
       return RUNNING_STATES.includes(job.state);
     case "failed":

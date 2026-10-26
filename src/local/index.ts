@@ -2,7 +2,7 @@
 //
 //   /handoff [prompt]          hand the conversation off to the Sprite as a new job
 //   /handoff sync              bring the Sprite's pi setup in line with the laptop
-//   /handoff status [filter]   browse jobs (all, running, joined, needs-input, done, failed, aborted, pulled)
+//   /handoff status [filter]   browse jobs (all, running, joined, needs-input, done, failed, aborted, pulled, dropped)
 //   /handoff reply [job] [text]
 //                              another run of a finished job: an answer, or more work
 //   /handoff pull [job] [--here] [--switch] [--abort] [--worktree]
@@ -13,6 +13,8 @@
 //   /handoff watch [job]       follow a run live (read-only), or replay a finished job's last run
 //   /handoff cleanup [job] [--discard] [--remote]
 //                              remove a pulled job's worktree and branches from the laptop
+//   /handoff drop [job] [--keep-branch]
+//                              discard a finished job's work; keep its conversation
 //
 // A prompt for /handoff cannot start with one of these words; they are read as the
 // subcommand.
@@ -34,6 +36,7 @@ import { ensureSpriteBuild } from "./install.ts";
 import {
   ACTIVE_STATES,
   conversationName,
+  isOffSprite,
   JOB_FILTERS,
   type LocalJob,
   listJobs,
@@ -56,6 +59,7 @@ import { syncSprite } from "./sync.ts";
 import { registerHandoffTools } from "./tools.ts";
 import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from "./watch.ts";
 import { blockers, canCleanup, type CleanupOptions, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
+import { canDrop, type DropOptions, DropRefusedError, dropJob } from "./drop.ts";
 
 const PROGRESS_KEY = "handoff-progress";
 /** Subcommands as the completion menu shows them: usage as the label, what it does beside it. */
@@ -76,6 +80,7 @@ const SUBCOMMANDS = [
     usage: "cleanup [job] [options]",
     description: "remove a pulled job's worktree and branch. Options: --discard, --remote",
   },
+  { name: "drop", usage: "drop [job] [--keep-branch]", description: "discard a finished job's work, keep its conversation" },
 ] as const;
 const PULL_FLAGS = {
   "--here": "bring its context into this conversation",
@@ -170,6 +175,18 @@ export default function handoffLocal(pi: ExtensionAPI): void {
           .filter(({ word }) => word.startsWith(typed) && !words.includes(word))
           .map(({ word, description }) => ({ value: `${head} ${word}`, label: word, description }));
       }
+      if (text.startsWith("drop ")) {
+        const words = text.slice("drop ".length).split(/\s+/);
+        const typed = words.pop() ?? "";
+        const head = ["drop", ...words].join(" ");
+        const jobs = (await listJobs())
+          .filter(canDrop)
+          .map((j) => ({ word: j.jobId, description: `${outcomeLabel(j.state)} · ${conversationName(j)}` }));
+        const flags = Object.entries(DROP_FLAGS).map(([word, description]) => ({ word, description }));
+        return [...jobs, ...flags]
+          .filter(({ word }) => word.startsWith(typed) && !words.includes(word))
+          .map(({ word, description }) => ({ value: `${head} ${word}`, label: word, description }));
+      }
       if (text.startsWith("pull ")) {
         const words = text.slice("pull ".length).split(/\s+/);
         const typed = words.pop() ?? "";
@@ -200,6 +217,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         else if (subcommand === "join") await joinCommand(ctx, runtime, rest);
         else if (subcommand === "watch") await watchCommand(ctx, runtime, rest);
         else if (subcommand === "cleanup") await cleanupCommand(ctx, runtime, rest);
+        else if (subcommand === "drop") await dropCommand(ctx, runtime, rest);
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         const message = (error as Error).message;
@@ -351,6 +369,9 @@ async function statusCommand(
       case "here":
         await runContextHere(pi, ctx, job);
         return;
+      case "drop":
+        await runDrop(ctx, runtime, job, { keepBranch: false });
+        return;
       case "bringBack":
         await runRetryWayBack(ctx, runtime, job);
         return;
@@ -473,7 +494,7 @@ async function watchCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntim
 
 async function runWatch(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob): Promise<void> {
   if (!ctx.hasUI) throw new Error("/handoff watch needs the terminal UI");
-  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled: its events are no longer on the Sprite`);
+  if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}: its events are no longer on the Sprite`);
   if (job.state === "joined") throw new Error(`${job.jobId} is joined, so it is not streamed: attach to it with /handoff join ${job.jobId}`);
 
   // The Sprite needs the handoff-watch script; this is one small read when nothing changed.
@@ -556,6 +577,52 @@ async function runCleanup(
   }
 }
 
+const DROP_FLAGS = { "--keep-branch": "keep the job branch on origin" } as const;
+
+/** /handoff drop [job] [--keep-branch]: discard a finished job's work, keep its conversation. */
+async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+  const flags = new Set(words.filter((w) => w.startsWith("--")));
+  const unknown = [...flags].filter((f) => !Object.hasOwn(DROP_FLAGS, f));
+  if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(DROP_FLAGS).join(", ")}`);
+  const ids = words.filter((w) => !w.startsWith("--"));
+  if (ids.length > 1) throw new Error("drop one job at a time");
+  const job =
+    ids[0] === undefined
+      ? await pickJob(ctx, canDrop, "Drop which job?", "no finished job to drop; /handoff status lists them all")
+      : await readJob(ids[0]);
+  if (job === undefined) {
+    if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
+    return;
+  }
+  await runDrop(ctx, runtime, job, { keepBranch: flags.has("--keep-branch") });
+}
+
+/** Ask, then drop. Without a UI there is nobody to ask: refuse, as the work would be lost. */
+async function runDrop(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob, options: DropOptions): Promise<void> {
+  if (!canDrop(job)) throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: only a job whose run has ended can be dropped`);
+  if (!ctx.hasUI) throw new Error(`dropping ${job.jobId} discards its work and needs a confirmation; run it with the UI`);
+  let branch = "";
+  if (job.jobBranch !== undefined) {
+    branch = ` Its branch ${job.jobBranch} ${options.keepBranch ? "stays on" : "is deleted on"} origin.`;
+  }
+  const ok = await ctx.ui.confirm(
+    `Drop ${job.jobId}?`,
+    `Discard the work of "${conversationName(job)}".${branch} Its conversation is saved here; your folder is not touched. It is removed from the Sprite.`,
+  );
+  if (!ok) return;
+  const progress = progressTo(ctx, `Dropping ${job.jobId}`);
+  try {
+    const { lines } = await dropJob(job, options, progress);
+    ctx.ui.notify([`☁ Dropped job ${job.jobId}: ${conversationName(job)}`, ...lines].join("\n"), "info");
+    await runtime.refreshStatusLine();
+  } catch (error: unknown) {
+    if (!(error instanceof DropRefusedError)) throw error;
+    ctx.ui.notify(`☁ ${error.message}`, "error");
+  } finally {
+    clearProgress(ctx);
+  }
+}
+
 /** Why /handoff join has no job to offer: say when one is still running. */
 async function noJoinableMessage(): Promise<string> {
   const running = (await listJobs()).filter((j) => ACTIVE_STATES.includes(j.state) && j.state !== "joined");
@@ -577,7 +644,7 @@ async function runJoin(
   job: LocalJob,
   { abort }: { abort: boolean },
 ): Promise<void> {
-  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
+  if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
   const progress = progressTo(ctx, `Joining ${job.jobId}`);
   let outcome;
   try {
@@ -618,7 +685,7 @@ async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntim
     firstJob ??
     (await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /handoff status lists them all"));
   if (job === undefined) return;
-  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
+  if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
   if (!canReply(job)) {
     throw new Error(
       job.state === "joined"

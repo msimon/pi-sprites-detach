@@ -106,7 +106,13 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     }
 
     progress("saving the conversation…");
-    const sessionFile = await importSession(downloaded, job, worktree, wayBack);
+    const sessionFile = await importSession(
+      downloaded,
+      job,
+      worktree ?? job.folder,
+      returnBriefing(job, worktree, wayBack),
+      pullDetails(job, worktree, wayBack),
+    );
 
     progress("cleaning up the Sprite…");
     let cleanupError: string | undefined;
@@ -210,10 +216,16 @@ export async function retryWayBack(job: LocalJob, progress: (text: string) => vo
 
 /**
  * Save the downloaded session in the original folder's session dir, named the way
- * pi names its own (`<header timestamp>_<id>.jsonl`), with its cwd set to the folder
- * (or the worktree) and the return briefing appended.
+ * pi names its own (`<header timestamp>_<id>.jsonl`), with its cwd set to `cwd` (the
+ * folder or the worktree) and `briefing` appended for the model. Also used by drop.
  */
-async function importSession(downloaded: string, job: LocalJob, worktree: string | undefined, wayBack: WayBack | undefined): Promise<string> {
+export async function importSession(
+  downloaded: string,
+  job: LocalJob,
+  cwd: string,
+  briefing: string,
+  details: ReturnDetails,
+): Promise<string> {
   const text = await readFile(downloaded, "utf8");
   const newline = text.indexOf("\n");
   type Header = { type?: string; id?: string; timestamp?: string; cwd?: string };
@@ -226,7 +238,7 @@ async function importSession(downloaded: string, job: LocalJob, worktree: string
   if (header.type !== "session" || typeof header.id !== "string" || typeof header.timestamp !== "string") {
     throw new Error(`the job's session file has no valid header (${job.jobId})`);
   }
-  header.cwd = worktree ?? job.folder;
+  header.cwd = cwd;
 
   const sessionDir = dirname(job.mainSessionFile);
   const target = join(sessionDir, `${header.timestamp.replace(/[:.]/g, "-")}_${header.id}.jsonl`);
@@ -234,13 +246,16 @@ async function importSession(downloaded: string, job: LocalJob, worktree: string
   const partial = `${target}.${process.pid}.tmp`;
   await writeFile(partial, `${JSON.stringify(header)}\n${newline === -1 ? "" : text.slice(newline + 1)}`);
   await rename(partial, target);
+  SessionManager.open(target).appendCustomMessageEntry(RETURN_MESSAGE, briefing, true, details);
+  return target;
+}
 
+function pullDetails(job: LocalJob, worktree: string | undefined, wayBack: WayBack | undefined): ReturnDetails {
   const details: ReturnDetails = { jobId: job.jobId };
   if (job.jobBranch !== undefined) details.jobBranch = job.jobBranch;
   if (worktree !== undefined) details.worktree = worktree;
   if (wayBack !== undefined) details.where = wayBack.where;
-  SessionManager.open(target).appendCustomMessageEntry(RETURN_MESSAGE, returnBriefing(job, worktree, wayBack), true, details);
-  return target;
+  return details;
 }
 
 /** Appended to the job's conversation on pull: where things are now. Sent to the model. */

@@ -8,14 +8,14 @@
 
 import { loadConfig } from "./config.ts";
 import { run, spriteBin, spriteJson } from "./exec.ts";
-import { ACTIVE_STATES, type LocalJob, writeJob } from "./jobs.ts";
+import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME } from "./paths.ts";
 import { mergeStatus, type RemoteStatus } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
 /** A job can be joined once its run has ended, or again while it is joined. */
 export const canJoin = (job: LocalJob): boolean =>
-  job.state !== "pulled" && (job.state === "joined" || !ACTIVE_STATES.includes(job.state));
+  !isOffSprite(job) && (job.state === "joined" || !ACTIVE_STATES.includes(job.state));
 
 /** A headless run is in progress: join needs --abort, which stops it first. */
 export class RunInProgressError extends Error {}
@@ -41,7 +41,7 @@ export async function joinJob(
   { abort }: { abort: boolean },
   progress: (text: string) => void,
 ): Promise<JoinOutcome> {
-  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
+  if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
 
   // Same as a reply: the joined pi should see the laptop's current pi setup.
   let synced: string[] = [];

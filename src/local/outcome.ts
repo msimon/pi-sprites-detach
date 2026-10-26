@@ -86,6 +86,7 @@ export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}
   if (job.state === "done" || job.state === "needs_input" || job.state === "error" || job.state === "aborted") {
     footer.push(`Continue there: /handoff reply ${job.jobId} <text>`);
     footer.push(`Bring it back:  /handoff pull ${job.jobId} --switch  (or --here: its context into this conversation)`);
+    footer.push(`Don't want it:  /handoff drop ${job.jobId}  (discards its work, keeps its conversation)`);
   }
   return {
     jobId: job.jobId,

@@ -9,7 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 import { plainList } from "./browser.ts";
 import { buildJobContext } from "./here.ts";
-import { ACTIVE_STATES, conversationName, type LocalJob, listJobs, parseFilter, readJob, writeJob } from "./jobs.ts";
+import { ACTIVE_STATES, conversationName, isOffSprite, type LocalJob, listJobs, parseFilter, readJob, writeJob } from "./jobs.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { outcomeLabel } from "./outcome.ts";
 import { pullJob, retryWayBack, StillRunningError, stopJob } from "./pull.ts";
@@ -68,7 +68,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     parameters: Type.Object({
       job: Type.Optional(Type.String({ description: "A job id such as h3 or h1k, to show in full" })),
       filter: Type.Optional(
-        Type.String({ description: "all (default; leaves out pulled jobs), running, joined, needs-input, done, failed, aborted or pulled; ignored with job" }),
+        Type.String({ description: "all (default; leaves out pulled and dropped jobs), running, joined, needs-input, done, failed, aborted, pulled or dropped; ignored with job" }),
       ),
     }),
     executionMode: "sequential",
@@ -79,12 +79,12 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       if (filter === undefined) throw new Error(`unknown filter "${params.filter}"`);
       const jobs = await listJobs();
       const list = plainList(jobs, filter, Date.now());
-      // "all" leaves out pulled jobs; say so, or a model asked for every job reports none.
-      const pulled = filter === "all" ? jobs.filter((j) => j.state === "pulled") : [];
+      // "all" leaves out pulled and dropped jobs; say so, or a model asked for every job reports none.
+      const gone = filter === "all" ? jobs.filter(isOffSprite) : [];
       return text(
-        pulled.length === 0
+        gone.length === 0
           ? list
-          : `${list}\nAlso pulled (brought back, no longer on the cloud machine): ${pulled.map((j) => `${j.jobId} ${conversationName(j)}`).join("; ")}. Use filter "pulled" for details.`,
+          : `${list}\nAlso off the cloud machine (pulled, or dropped: work discarded): ${gone.map((j) => `${j.jobId} ${j.state} ${conversationName(j)}`).join("; ")}. Use filter "pulled" or "dropped" for details.`,
       );
     },
   });

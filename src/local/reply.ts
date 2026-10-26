@@ -7,13 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { spriteJson } from "./exec.ts";
-import { ACTIVE_STATES, type LocalJob, writeJob } from "./jobs.ts";
+import { ACTIVE_STATES, isOffSprite, type LocalJob, writeJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME, REMOTE_STATE } from "./paths.ts";
 import { mergeStatus, type RemoteStatus } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
 
-/** A job can take a reply once its run has ended, until it is pulled. */
-export const canReply = (job: LocalJob): boolean => job.state !== "pulled" && !ACTIVE_STATES.includes(job.state);
+/** A job can take a reply once its run has ended, until it is pulled or dropped. */
+export const canReply = (job: LocalJob): boolean => !isOffSprite(job) && !ACTIVE_STATES.includes(job.state);
 
 interface ReplyResult {
   started?: boolean;
@@ -29,7 +29,7 @@ export interface ReplyOutcome {
 }
 
 export async function replyJob(job: LocalJob, text: string, progress: (text: string) => void): Promise<ReplyOutcome> {
-  if (job.state === "pulled") throw new Error(`${job.jobId} is pulled; continue in its conversation instead`);
+  if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
   if (text.trim() === "") throw new Error("the reply is empty");
 
   // Same as a handoff: the run should see the laptop's current pi setup.

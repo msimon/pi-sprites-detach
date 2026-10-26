@@ -55,3 +55,4 @@ You cannot type slash commands. Tell the user about them when they fit:
 - `/handoff watch [job]`: a live, read-only view of a job's run (its text and tool calls), or a replay of a finished job's last run. Suggest it when the user asks how a running job is going; you can read its state with `handoff_status`, but the live view is theirs.
 - `/handoff status`: the job browser, with every action above and filters by state.
 - `/handoff cleanup <job> --discard` and `--remote`: the forced forms of `handoff_cleanup`.
+- `/handoff drop <job> [--keep-branch]`: discard a finished job the user does not want (done, needs input, failed or aborted): its work is not brought back and its branch is deleted on origin; its conversation is kept, and the job shows as `dropped`. Suggest it when the user wants to get rid of a job without its work landing in their folder; never pull a job just to clear it, since pull brings its work into the folder.

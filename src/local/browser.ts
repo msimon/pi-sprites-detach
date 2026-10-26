@@ -31,6 +31,7 @@ const FILTER_KEYS: Record<JobFilter, string> = {
   failed: "f",
   aborted: "x",
   pulled: "p",
+  dropped: "t",
 };
 
 const LIST_ROWS = 10;
@@ -55,12 +56,14 @@ const STATE_ORDER: Record<JobState, number> = {
   joined: 3,
   aborted: 4,
   pulled: 5,
+  dropped: 6,
 };
 
-const jobNumber = (job: LocalJob): number => Number(job.jobId.slice(1));
+/** Newest first by start time: ids are base 36 and may change prefix, so not by id. */
+const started = (job: LocalJob): number => Date.parse(job.startedAt) || 0;
 
 export function sortJobs(jobs: readonly LocalJob[]): LocalJob[] {
-  return [...jobs].sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || jobNumber(b) - jobNumber(a));
+  return [...jobs].sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || started(b) - started(a));
 }
 
 export function ago(iso: string | undefined, now: number): string {
@@ -85,6 +88,8 @@ export function jobAge(job: LocalJob, now: number): string {
       return `joined ${ago(job.updatedAt, now)}`;
     case "pulled":
       return `pulled ${ago(job.updatedAt, now)}`;
+    case "dropped":
+      return `dropped ${ago(job.updatedAt, now)}`;
     default:
       return ago(job.runEndedAt ?? job.updatedAt, now);
   }
@@ -103,7 +108,8 @@ export type JobAction =
   | "open"
   | "here"
   | "bringBack"
-  | "cleanup";
+  | "cleanup"
+  | "drop";
 
 export const ACTION_LABELS: Record<JobAction, string> = {
   reply: "Reply: answer or ask for more",
@@ -118,6 +124,7 @@ export const ACTION_LABELS: Record<JobAction, string> = {
   here: "Bring its context into this conversation",
   bringBack: "Bring its work into the folder again (fast-forward)",
   cleanup: "Clean up: remove its worktree and branch (merged work only)",
+  drop: "Drop: discard its work, keep its conversation",
 };
 
 export function jobActions(job: LocalJob): JobAction[] {
@@ -126,7 +133,7 @@ export function jobActions(job: LocalJob): JobAction[] {
     case "needs_input":
     case "error":
     case "aborted":
-      return ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull"];
+      return ["reply", "join", "show", "watch", "pullHere", "pullOpen", "pull", "drop"];
     case "starting":
     case "preparing":
     case "running":
@@ -139,6 +146,8 @@ export function jobActions(job: LocalJob): JobAction[] {
         ...(job.pulledSessionFile === undefined ? [] : (["open", "here"] as const)),
         ...(canCleanup(job) ? (["cleanup"] as const) : []),
       ];
+    case "dropped":
+      return job.pulledSessionFile === undefined ? [] : ["open"];
   }
 }
 
@@ -358,10 +367,11 @@ export class JobBrowser implements Component {
 
     const body = outcomeBody(job);
     if (body === "") {
-      const note =
-        job.state === "pulled"
-          ? "Pulled back to the laptop."
-          : "Still running. The result shows here and as a card in the chat when it finishes.";
+      const notes: Partial<Record<JobState, string>> = {
+        pulled: "Pulled back to the laptop.",
+        dropped: "Dropped: its work was discarded; its conversation is kept.",
+      };
+      const note = notes[job.state] ?? "Still running. The result shows here and as a card in the chat when it finishes.";
       lines.push(t.fg("muted", ` ${note}`));
       return lines;
     }

@@ -7,12 +7,12 @@ import { type ChildProcess, spawn } from "node:child_process";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { spriteBin } from "./exec.ts";
-import { ACTIVE_STATES, conversationName, type LocalJob } from "./jobs.ts";
+import { ACTIVE_STATES, conversationName, isOffSprite, type LocalJob } from "./jobs.ts";
 import { REMOTE_HANDOFF_HOME } from "./paths.ts";
 import { renderTranscript, type Style, Transcript } from "./transcript.ts";
 
-/** A job's events are on the Sprite until it is pulled; a joined pi is interactive, not streamed. */
-export const canWatch = (job: LocalJob): boolean => job.state !== "pulled" && job.state !== "joined";
+/** A job's events are on the Sprite until it is pulled or dropped; a joined pi is interactive, not streamed. */
+export const canWatch = (job: LocalJob): boolean => !isOffSprite(job) && job.state !== "joined";
 
 /** Whether the run is still going, so the view follows it instead of replaying it. */
 export const isLive = (job: LocalJob): boolean => ACTIVE_STATES.includes(job.state);
