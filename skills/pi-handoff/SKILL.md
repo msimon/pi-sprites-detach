@@ -1,6 +1,6 @@
 ---
 name: pi-handoff
-description: Hand work off to a cloud machine (a Fly.io Sprite) so it keeps running while the user is away, then check on it, answer it and bring it back. Use when the user says they have to leave or go offline, asks to hand off, run something in the background or in the cloud, or asks about a handoff job (h1, h2… ha, h1k: h + a base-36 counter), its status, its question or its result.
+description: Hand work off to a cloud machine (a Fly.io Sprite) so it keeps running while the user is away, then check on it, answer it and bring it back. Use when the user says they have to leave or go offline, asks to hand off, run something in the background or in the cloud, or asks about a handoff job (h1, h2… ha, h1k, i.e. h + a base-36 counter), its status, its question or its result.
 ---
 
 # pi-handoff
