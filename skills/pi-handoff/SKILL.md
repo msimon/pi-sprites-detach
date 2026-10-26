@@ -23,8 +23,9 @@ pi-handoff moves a conversation to a cloud machine. The agent there keeps workin
 
 1. Use `handoff_start` when the user says they have to leave and the work should continue. Do not hand off on your own initiative.
 2. The job continues this conversation **up to your last finished message**. It does not see the turn you are in. Write the `prompt` so it stands alone: what the user asked for, what you already did and found in this turn, and what to do next. Uncommitted changes in the working tree go along; files outside the project do not.
-3. After it returns, tell the user the job id and branch, and **stop**. Do not continue the same work here: the job is doing it.
-4. If the user declines the confirmation, do not ask again unless they bring it up.
+3. After it returns, tell the user the job id and branch, and **stop**. Do not continue the same work here: the job is doing it. Pass on any note it returns (the base branch was pushed to origin for the pull request, or the job runs without one and why).
+4. With `pr: auto` in the user's config, origin may have commits their branch lacks; the user is then asked to continue without a pull request or cancel. If they cancel, the tool says so: tell them to `git pull` first, and do not hand off again unless they ask.
+5. If the user declines the confirmation, do not ask again unless they bring it up.
 
 ## States of a job
 
