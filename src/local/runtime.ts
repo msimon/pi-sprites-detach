@@ -89,7 +89,7 @@ function oneLine(text: string, max = BODY_MAX): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-/** One-line outcome, for `/handoff status` and the cmux notification. */
+/** One-line outcome, for `/detach status` and the cmux notification. */
 export function describeOutcome(job: LocalJob): { label: string; body: string } {
   const label = outcomeLabel(job.state);
   switch (job.state) {
@@ -106,7 +106,7 @@ export function describeOutcome(job: LocalJob): { label: string; body: string } 
   }
 }
 
-export class HandoffRuntime {
+export class DetachRuntime {
   readonly #pi: ExtensionAPI;
   #ctx: ExtensionContext | undefined;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -193,7 +193,7 @@ export class HandoffRuntime {
     // handed-off one: the card names its job, and the job browser lists them all.
     if (this.#ctx !== undefined) this.#pi.appendEntry(OUTCOME_ENTRY, buildOutcomeCard(job));
     if (job.surface !== undefined) {
-      await cmuxNotify(job.surface, `pi-handoff: job ${job.jobId} ${label}`, `${conversationName(job)}: ${body}`);
+      await cmuxNotify(job.surface, `pi-sprites-detach: job ${job.jobId} ${label}`, `${conversationName(job)}: ${body}`);
     }
   }
 

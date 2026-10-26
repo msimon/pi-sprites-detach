@@ -1,5 +1,5 @@
 #!/bin/bash
-# detach-run <jobId>: one run of a handed-off job, as the Sprite service detach-<jobId>.
+# detach-run <jobId>: one run of a detached job, as the Sprite service detach-<jobId>.
 #
 # Prepares the job's checkout on the first run, then runs pi headless on the job's
 # session file inside a mount namespace that shows the checkout at the laptop path,

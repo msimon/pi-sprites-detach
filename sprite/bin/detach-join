@@ -1,12 +1,12 @@
 #!/bin/bash
 # detach-join <jobId> [--abort] [-- pi args...]: start interactive pi on a job's
-# conversation, in the tmux session detach-<jobId> (/handoff join). The laptop then
+# conversation, in the tmux session detach-<jobId> (/attach). The laptop then
 # attaches with detach-attach over `sprite exec --tty`. One small JSON result:
 #   {joined:"started"|"already", status}   pi is running in the session
 #   {refused:"running", status}            a headless run is in progress (no --abort)
 #   {missing:true}                         no such job on this Sprite
 # --abort stops the headless run first (detach-stop). Starting a joined pi needs the
-# job's checkout, so a job must have run once (every handed-off job has). Arguments
+# job's checkout, so a job must have run once (every detached job has). Arguments
 # after `--` go to pi (a model, say).
 set -uo pipefail
 # shellcheck source=lib.sh

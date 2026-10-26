@@ -1,4 +1,4 @@
-// /handoff cleanup: remove what a pull left on the laptop for a job: its worktree
+// /detach cleanup: remove what a pull left on the laptop for a job: its worktree
 // (pull --worktree), the local branch made for it, and the fetched origin/<branch>.
 // With `remote` it also deletes the job branch on origin. Only once the work is
 // merged, or with `discard`; never over uncommitted changes unless `discard`.

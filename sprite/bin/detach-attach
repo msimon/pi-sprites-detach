@@ -11,8 +11,8 @@ job=${1:?usage: detach-attach <jobId>}
 session=$(join_session "$job")
 export TERM=${TERM:-xterm-256color}
 if ! tmux has-session -t "=$session" 2>/dev/null; then
-  echo "pi-handoff: $job has no joined pi on this Sprite (it quits once idle with nobody attached)."
-  echo "Run /handoff join $job again."
+  echo "pi-sprites-detach: $job has no joined pi on this Sprite (it quits once idle with nobody attached)."
+  echo "Run /attach $job again."
   exit 1
 fi
 exec tmux attach-session -t "=$session"

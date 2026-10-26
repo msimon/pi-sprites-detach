@@ -1,4 +1,4 @@
-// /handoff watch: pi's JSON event stream of a job's run, turned into a transcript.
+// /detach watch: pi's JSON event stream of a job's run, turned into a transcript.
 //
 // The Sprite streams events.jsonl (docs: json.md): message and tool events, plus the
 // watch_wait and watch_end records detach-watch adds. `Transcript` folds them into

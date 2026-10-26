@@ -1,7 +1,7 @@
-// /handoff pull --here: bring a pulled job's context into the current conversation.
+// /detach pull --here: bring a pulled job's context into the current conversation.
 //
 // The job's conversation stays its own session (pull saves it, /resume lists it).
-// Here, its own part (what happened on the Sprite after the handoff) is summarized
+// Here, its own part (what happened on the Sprite after detaching) is summarized
 // with pi's branch summarizer, the one /tree uses for an abandoned branch, and added
 // to this conversation as a message the model reads: what the job did, learned and
 // decided, its commits, and where its full conversation is. Nothing is merged: the
@@ -12,7 +12,7 @@ import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-wor
 import { generateBranchSummary, SessionManager } from "@earendil-works/pi-coding-agent";
 import { run } from "./exec.ts";
 import { conversationName, type LocalJob } from "./jobs.ts";
-import { CONTEXT_MESSAGE, type ContextDetails, RETURN_MESSAGE } from "./outcome.ts";
+import { CONTEXT_MESSAGE, type ContextDetails, isReturnMessage } from "./outcome.ts";
 
 /** Lines of `git log` shown; the rest is counted. */
 const MAX_COMMITS = 30;
@@ -40,7 +40,7 @@ export function jobOwnEntries(jobSessionFile: string, mainSessionFile: string, f
   }
   return own
     .filter((entry) => entry.type !== "session_info")
-    .filter((entry) => !(entry.type === "custom_message" && entry.customType === RETURN_MESSAGE));
+    .filter((entry) => !(entry.type === "custom_message" && isReturnMessage(entry.customType)));
 }
 
 /** Summarize the entries with the session's current model, like /tree does. */
@@ -68,7 +68,7 @@ async function summarize(ctx: ExtensionContext, entries: SessionEntry[]): Promis
   return summary;
 }
 
-/** The job's commits since the handoff and the files they change, from the fetched branch. */
+/** The job's commits since detaching and the files they change, from the fetched branch. */
 async function gitContext(job: LocalJob): Promise<string | undefined> {
   if (job.protocol !== "git" || job.jobBranch === undefined || job.baseHead === undefined) return undefined;
   // After a fast-forward the branch is deleted: its tip is recorded as jobHead.
@@ -81,7 +81,7 @@ async function gitContext(job: LocalJob): Promise<string | undefined> {
   const shown = commits.slice(0, MAX_COMMITS);
   const more = commits.length > shown.length ? [`… and ${commits.length - shown.length} more`] : [];
   return [
-    `Commits since the handoff (${commits.length}):`,
+    `Commits since detaching (${commits.length}):`,
     ...shown,
     ...more,
     "",
@@ -106,7 +106,7 @@ export function contextMessage(job: LocalJob, summary: string, git: string | und
   const where = codeWhere(job);
   const final = (job.lastAssistantText ?? "").trim();
   return [
-    `[pi-handoff] Context from handoff job ${job.jobId} ("${conversationName(job)}"). The job split off from this conversation, ran on a cloud machine, and is now back on the laptop as its own conversation. Its work is not part of this conversation's history; this is what it did, so you can continue from it here.`,
+    `[pi-sprites-detach] Context from detached job ${job.jobId} ("${conversationName(job)}"). The job split off from this conversation, ran on a cloud machine, and is now back on the laptop as its own conversation. Its work is not part of this conversation's history; this is what it did, so you can continue from it here.`,
     where,
     "",
     "## Summary of the job",

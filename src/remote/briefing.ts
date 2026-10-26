@@ -28,7 +28,7 @@ export function detectInstallCommand(job: RemoteJob): string | undefined {
 }
 
 export interface BriefingOptions {
-  /** Interactive pi from /handoff join: the user is at the keyboard. */
+  /** Interactive pi from /attach: the user is at the keyboard. */
   joined?: boolean;
 }
 
@@ -40,14 +40,14 @@ export function buildBriefing(job: RemoteJob, installCommand: string | undefined
 
   if (options.joined) {
     n(
-      `Situation: you are running on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. Earlier messages in this conversation happened on their Mac, and earlier runs of this job may have run here unattended; from here on, every tool runs on this Linux machine.`,
+      `Situation: you are running on a cloud machine (a Fly.io Sprite, Linux) as detached job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. Earlier messages in this conversation happened on their Mac, and earlier runs of this job may have run here unattended; from here on, every tool runs on this Linux machine.`,
     );
     n(
-      "The user is here now: they joined this job from their laptop and are reading and typing in this session, so you can work with them as usual. If they leave, this session ends once you finish your current turn.",
+      "The user is here now: they attached to this job from their laptop and are reading and typing in this session, so you can work with them as usual. If they leave, this session ends once you finish your current turn.",
     );
   } else {
     n(
-      `Situation: you are running unattended on a cloud machine (a Fly.io Sprite, Linux) as handoff job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. The user handed this conversation off because they are away. Earlier messages in this conversation happened on their Mac; from here on, every tool runs on this Linux machine.`,
+      `Situation: you are running unattended on a cloud machine (a Fly.io Sprite, Linux) as detached job ${job.jobId} ("${job.jobName}"), split from the user's laptop session ${job.mainSessionId}. The user handed this conversation off because they are away. Earlier messages in this conversation happened on their Mac; from here on, every tool runs on this Linux machine.`,
     );
     n(
       "No live user and no UI: dialogs do not work and nobody reads your messages until the run ends. Make reasonable decisions yourself and list the assumptions you made in your final message.",

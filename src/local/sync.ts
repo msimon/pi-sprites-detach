@@ -1,4 +1,4 @@
-// Config sync: keep the Sprite's pi setup, pi-handoff's Sprite files and the extra
+// Config sync: keep the Sprite's pi setup, pi-sprites-detach's Sprite files and the extra
 // tools in step with the laptop. One small read when nothing changed; otherwise an
 // upload and a detached apply on the Sprite (detach-sync-apply), polled until done.
 
@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import type { HandoffConfig } from "./config.ts";
+import type { DetachConfig } from "./config.ts";
 import { emitJson, run, runOk, sleep, spriteJson } from "./exec.ts";
 import { createMatcher } from "./glob.ts";
 import { withSpriteBuild } from "./install.ts";
@@ -33,7 +33,7 @@ interface LocalSet {
   notes: string[];
 }
 
-async function collect(config: HandoffConfig): Promise<LocalSet> {
+async function collect(config: DetachConfig): Promise<LocalSet> {
   const excluded = createMatcher(config.sync.exclude);
   const files: string[] = [];
   const notes: string[] = [];
@@ -140,7 +140,7 @@ ${emitJson("{buildHash:$h, applied:$a, state:$s, tools:$t}", `--arg h "$build" -
 /**
  * Upload and start the apply. Uploads land in a fresh folder that replaces
  * `incoming/` only once complete, so a failed upload never leaves stale files.
- * pi-handoff's own files are installed right away (they are small and the apply
+ * pi-sprites-detach's own files are installed right away (they are small and the apply
  * script comes from them); the rest is applied detached.
  *
  * Windows syncing at the same moment take turns (flock). One that finds an apply
@@ -205,7 +205,7 @@ async function waitForApply(sprite: string, onProgress: (text: string) => void, 
 
 /** Bring the Sprite in line with the laptop. Blocks until any install finishes. */
 export async function syncSprite(
-  config: HandoffConfig,
+  config: DetachConfig,
   sprite: string,
   onProgress: (text: string) => void,
   signal?: AbortSignal,
@@ -239,7 +239,7 @@ export async function syncSprite(
       if (remote.buildHash !== current.hash) {
         await tar(current.dir, join(tmp, "build.tgz"), ["."]);
         files.push([join(tmp, "build.tgz"), `${up}/build.tgz`]);
-        updated.push("pi-handoff");
+        updated.push("pi-sprites-detach");
       }
       return new Set((await readdir(join(current.dir, "setup/tools"))).map((f) => f.replace(/\.sh$/, "")));
     }, (note) => notes.push(note));

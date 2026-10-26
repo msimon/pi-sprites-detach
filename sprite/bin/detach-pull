@@ -37,8 +37,8 @@ if [ "$protocol" = git ] && [ -d "$checkout" ]; then
   # does not ignore them.
   git add -A -- . ':(exclude,glob)**/node_modules/**' ':(exclude,glob)**/.venv/**' || exit 1
   if ! git diff --cached --quiet; then
-    git commit --no-verify -q -m "pi-handoff: uncommitted work at pull" \
-      -m "Committed by /handoff pull so everything the job did is on its branch." || exit 1
+    git commit --no-verify -q -m "pi-sprites-detach: uncommitted work at pull" \
+      -m "Committed by /detach pull so everything the job did is on its branch." || exit 1
     snapshot=$(git rev-parse HEAD | jq -R .)
   fi
   git push --no-verify -q origin "HEAD:refs/heads/$branch" || { echo "git push of $branch failed" >&2; exit 1; }

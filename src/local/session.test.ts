@@ -30,7 +30,7 @@ test("lastCompletedLeaf: the last assistant message that ended its turn, not one
 
     main.appendMessage(assistant("first answer", "stop"));
     const finished = main.getLeafId()!;
-    // A turn in progress: the trigger, then the model calling tools before its handoff tool.
+    // A turn in progress: the trigger, then the model calling tools before its detach tool.
     main.appendMessage(user("hand this off"));
     main.appendMessage(assistant("let me look", "toolUse"));
     assert.equal(lastCompletedLeaf(main.getBranch()), finished);

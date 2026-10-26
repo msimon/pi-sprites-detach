@@ -4,7 +4,7 @@
 # Started detached by the laptop after it uploads a changed pi config and/or a list
 # of wanted tool versions. Progress goes to ~/.detach/sync/state.json, which the
 # laptop polls; what was applied goes to ~/.detach/sync/applied.json, which the
-# laptop compares against on the next /handoff.
+# laptop compares against on the next /detach.
 #
 # incoming/ may contain:
 #   config.tgz, files.txt, config.hash   the synced files (paths relative to $HOME)

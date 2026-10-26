@@ -1,4 +1,4 @@
-// /handoff pull: bring a job's conversation and work back to the laptop.
+// /detach pull: bring a job's conversation and work back to the laptop.
 //
 // 1. On the Sprite, detach-pull refuses while a run is in progress (or stops it with
 //    --abort), commits what the agent left uncommitted and pushes the job branch.
@@ -10,7 +10,7 @@
 //    the session is saved, so its return briefing says where the work is.
 // 4. Only then is the job removed from the Sprite (detach-clean) and marked pulled.
 //
-// A way back that could not happen yet (`pending`) is retried by /handoff pull <job>
+// A way back that could not happen yet (`pending`) is retried by /detach pull <job>
 // on the pulled job (retryWayBack), without the Sprite.
 
 import { existsSync } from "node:fs";
@@ -60,7 +60,7 @@ interface PrepareResult {
 const runScript = (name: string): string => `exec "${REMOTE_DETACH_HOME}/bin/${name}" "$@"`;
 
 /**
- * Bring the Sprite's setup and pi-sprites-detach's scripts in line first, as a handoff,
+ * Bring the Sprite's setup and pi-sprites-detach's scripts in line first, as a detach,
  * reply or join does: after an update (or the rename) the scripts run below may be new.
  * One small read when nothing changed.
  */
@@ -96,8 +96,8 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
     await writeJob(current);
     throw new StillRunningError(
       current.state === "joined"
-        ? `${job.jobId} is joined: pi is live on the Sprite. Quit it there (it also quits once idle with nobody attached), or stop it and bring the job back with /handoff pull ${job.jobId} --abort.`
-        : `${job.jobId} is still running. Wait for it to finish, or stop it and bring it back with /handoff pull ${job.jobId} --abort.`,
+        ? `${job.jobId} is joined: pi is live on the Sprite. Quit it there (it also quits once idle with nobody attached), or stop it and bring the job back with /detach pull ${job.jobId} --abort.`
+        : `${job.jobId} is still running. Wait for it to finish, or stop it and bring it back with /detach pull ${job.jobId} --abort.`,
     );
   }
 
@@ -144,7 +144,7 @@ export async function pullJob(job: LocalJob, options: PullOptions, progress: (te
       pulledSessionFile: sessionFile,
       ...(worktree === undefined ? {} : { worktree }),
       ...wayBackFields(wayBack),
-      // The status poll retries it (HandoffRuntime.poll).
+      // The status poll retries it (DetachRuntime.poll).
       ...(cleanupError === undefined ? {} : { cleanupPending: true }),
     };
     await writeJob(current);
@@ -189,7 +189,7 @@ async function safeWayBack(job: LocalJob): Promise<WayBack> {
     return {
       kind: "pending",
       where: `origin/${job.jobBranch}`,
-      text: `Could not bring the work back into ${job.folder} (${(error as Error).message}): run /handoff pull ${job.jobId} again, or merge origin/${job.jobBranch} yourself.`,
+      text: `Could not bring the work back into ${job.folder} (${(error as Error).message}): run /detach pull ${job.jobId} again, or merge origin/${job.jobBranch} yourself.`,
     };
   }
 }
@@ -221,7 +221,7 @@ export async function retryWayBack(job: LocalJob, progress: (text: string) => vo
     const details: ReturnDetails = { jobId: job.jobId, jobBranch: branch, where: wayBack.where };
     SessionManager.open(job.pulledSessionFile).appendCustomMessageEntry(
       RETURN_MESSAGE,
-      `[pi-handoff] Update on the job's work: ${workSentence(updated, undefined, wayBack)}`,
+      `[pi-sprites-detach] Update on the job's work: ${workSentence(updated, undefined, wayBack)}`,
       true,
       details,
     );
@@ -276,7 +276,7 @@ function pullDetails(job: LocalJob, worktree: string | undefined, wayBack: WayBa
 /** Appended to the job's conversation on pull: where things are now. Sent to the model. */
 export function returnBriefing(job: LocalJob, worktree: string | undefined, wayBack?: WayBack): string {
   const parts = [
-    `[pi-handoff] This conversation is back on the user's laptop (macOS). The turns since the handoff ran unattended on a cloud machine as handoff job ${job.jobId}; that machine's copy of the files is gone.`,
+    `[pi-sprites-detach] This conversation is back on the user's laptop (macOS). The turns since detaching ran unattended on a cloud machine as detached job ${job.jobId}; that machine's copy of the files is gone.`,
   ];
   if (job.protocol === "git" && job.jobBranch !== undefined) {
     parts.push(workSentence(job, worktree, wayBack));

@@ -1,14 +1,14 @@
 {
-  "name": "@msimon/pi-handoff",
+  "name": "@msimon/pi-sprites-detach",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Hand a pi conversation off to a Fly.io Sprite, keep it running unattended, get notified, pull it back.",
+  "description": "Detach a pi conversation to a Fly.io Sprite, keep it running unattended, get notified, attach to it or pull it back.",
   "author": "Marc Simon",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/msimon/pi-handoff.git"
+    "url": "git+https://github.com/msimon/pi-sprites-detach.git"
   },
   "keywords": [
     "pi-package",

@@ -41,7 +41,7 @@ interface Fixture {
 
 /**
  * The user's folder on feat (a.txt, b.txt, .gitignore'd *.log), `dirty` applied before
- * the handoff, then a handoff as push.ts makes it: snapshot, job branch on origin.
+ * the detach, then a detach as push.ts makes it: snapshot, job branch on origin.
  */
 async function handoff(dirty: (work: string) => void = () => {}, pr: "auto" | "never" = "never"): Promise<Fixture> {
   const dir = join(root, String(++count));
@@ -129,10 +129,10 @@ test("ff with only the snapshot's changes in the folder: they become the snapsho
   assert.doesNotMatch(back.text, /still there, uncommitted/);
 });
 
-test("ff with edits since the handoff: they stay on top, uncommitted, untracked stays untracked", async () => {
+test("ff with edits since detaching: they stay on top, uncommitted, untracked stays untracked", async () => {
   const f = await handoff((work) => write(work, "a.txt", "a1\nA2\na3\n"));
   f.jobCommits({ "b.txt": "b1\nB2\nb3\n" });
-  // After the handoff: more in a snapshot file, another tracked file, a new file.
+  // After the detach: more in a snapshot file, another tracked file, a new file.
   write(f.work, "a.txt", "a1\nA2\na3\na4\n");
   write(f.work, "b.txt", "b0\nb1\nb2\nb3\n");
   write(f.work, "later.txt", "later\n");
@@ -151,7 +151,7 @@ test("ff with edits since the handoff: they stay on top, uncommitted, untracked 
   assert.match(back.text, /still there, uncommitted/);
 });
 
-test("no snapshot, edits since the handoff in other files: ff keeps them", async () => {
+test("no snapshot, edits since detaching in other files: ff keeps them", async () => {
   const f = await handoff();
   assert.equal(f.job.snapshotSha, undefined);
   f.jobCommits({ "b.txt": "b1\nB2\nb3\n" });
@@ -163,7 +163,7 @@ test("no snapshot, edits since the handoff in other files: ff keeps them", async
   assert.deepEqual(status(f.work), [" M a.txt"]);
 });
 
-test("edits since the handoff that conflict with the job's: nothing changes", async () => {
+test("edits since detaching that conflict with the job's: nothing changes", async () => {
   const f = await handoff((work) => write(work, "a.txt", "a1\nA2\na3\n"));
   f.jobCommits({ "b.txt": "b1\nJOB\nb3\n" });
   write(f.work, "b.txt", "b1\nMINE\nb3\n");
@@ -197,7 +197,7 @@ test("an ignored file where the job adds one: refused, ref and index put back", 
   assert.equal(originHas(f), true);
 });
 
-test("local commits since the handoff: nothing changes, merge yourself", async () => {
+test("local commits since detaching: nothing changes, merge yourself", async () => {
   const f = await handoff();
   f.jobCommits({ "b.txt": "b1\nB2\nb3\n" });
   write(f.work, "a.txt", "a1\na2\na3\na4\n");
@@ -205,7 +205,7 @@ test("local commits since the handoff: nothing changes, merge yourself", async (
   f.fetch();
   const back = await bringWorkBack(f.job, { findPr: noPr });
   assert.equal(back.kind, "manual");
-  assert.match(back.text, /feat has 1 commit since the handoff\. Merge origin\/feat-detach-1 into it yourself\./);
+  assert.match(back.text, /feat has 1 commit since detaching\. Merge origin\/feat-detach-1 into it yourself\./);
   assert.equal(g(f.work, "log", "-1", "--format=%s"), "local");
 });
 
@@ -216,7 +216,7 @@ test("folder on another branch: nothing changes; back on the branch, the retry w
   f.fetch();
   const back = await bringWorkBack(f.job, { findPr: noPr });
   assert.equal(back.kind, "pending");
-  assert.match(back.text, /it is on other, not feat\. Switch back to feat and run \/handoff pull h9 again\./);
+  assert.match(back.text, /it is on other, not feat\. Switch back to feat and run \/detach pull h9 again\./);
   assert.equal(tip(f, "feat"), f.job.baseHead);
   g(f.work, "switch", "-q", "feat");
   assert.equal((await bringWorkBack(f.job, { findPr: noPr })).kind, "fast-forwarded");

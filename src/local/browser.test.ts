@@ -71,6 +71,6 @@ test("actions follow the state", () => {
 
 test("plain list follows the filter", () => {
   const jobs = [job("h1", "done", { runEndedAt: iso(5) }), job("h2", "running")];
-  assert.equal(plainList(jobs, "running", NOW), "☁ Handoff jobs (running)\nh2  running  Job h2  started 30 min ago");
-  assert.equal(plainList(jobs, "pulled", NOW), "☁ No handoff jobs (pulled).");
+  assert.equal(plainList(jobs, "running", NOW), "☁ Detached jobs (running)\nh2  running  Job h2  started 30 min ago");
+  assert.equal(plainList(jobs, "pulled", NOW), "☁ No detached jobs (pulled).");
 });

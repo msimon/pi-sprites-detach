@@ -1,4 +1,4 @@
-// When a joined pi (/handoff join) quits on its own: once the agent is idle and nobody
+// When a joined pi (/attach) quits on its own: once the agent is idle and nobody
 // is attached to its tmux session, on two checks in a row (so a quick reconnect, or
 // a message queued during a turn that starts the next one right after agent_end, does
 // not count). Before anyone has attached at all, pi waits up to START_GRACE_MS for the

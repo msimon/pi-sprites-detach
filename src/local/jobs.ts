@@ -6,9 +6,9 @@ import { JOBS_DIR } from "./paths.ts";
 
 /**
  * `starting` is local only (before the runner is up); the rest mirror status.json.
- * `joined`: interactive pi on the Sprite (/handoff join), until it quits.
+ * `joined`: interactive pi on the Sprite (/attach), until it quits.
  * `pulled` and `dropped` are local only too: the job is off the Sprite, brought back
- * or discarded (/handoff drop).
+ * or discarded (/detach drop).
  */
 export type JobState =
   | "starting"
@@ -110,11 +110,11 @@ export interface LocalJob {
   lastAssistantText?: string;
   questions?: Question[];
   error?: string;
-  /** Set by /handoff pull: the job's conversation on the laptop, and the local worktree. */
+  /** Set by /detach pull: the job's conversation on the laptop, and the local worktree. */
   pulledSessionFile?: string;
   worktree?: string;
   /**
-   * Set by pull (git): how the work came back. `pending` can be retried with /handoff
+   * Set by pull (git): how the work came back. `pending` can be retried with /detach
    * pull <job>; `manual` means the user merges it. `wayBackText` says which and why.
    */
   wayBack?: "fast-forwarded" | "pr" | "worktree" | "pending" | "manual";
@@ -123,7 +123,7 @@ export interface LocalJob {
   jobHead?: string;
   /** The Sprite cleanup failed at pull; the status poll retries it until it succeeds. */
   cleanupPending?: boolean;
-  /** Set by /handoff cleanup: the worktree and branches a pull left on the laptop are gone. */
+  /** Set by /detach cleanup: the worktree and branches a pull left on the laptop are gone. */
   cleanedAt?: string;
 }
 

@@ -1,4 +1,4 @@
-// /handoff reply: another run of a job whose run has ended, with the reply as the
+// /detach reply: another run of a job whose run has ended, with the reply as the
 // prompt. It answers the job's question, or asks for more work on the same branch.
 // The run reuses the job's checkout and session file on the Sprite.
 
@@ -32,7 +32,7 @@ export async function replyJob(job: LocalJob, text: string, progress: (text: str
   if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
   if (text.trim() === "") throw new Error("the reply is empty");
 
-  // Same as a handoff: the run should see the laptop's current pi setup.
+  // Same as a detach: the run should see the laptop's current pi setup.
   progress("syncing the Sprite…");
   const { config } = await loadConfig();
   const report = await syncSprite(config, job.sprite, progress);
@@ -55,7 +55,7 @@ export async function replyJob(job: LocalJob, text: string, progress: (text: str
       if (merged !== undefined) await writeJob(merged);
       throw new Error(
         (merged ?? job).state === "joined"
-          ? `${job.jobId} is joined: pi is live on the Sprite, so type there (/handoff join ${job.jobId} reattaches)`
+          ? `${job.jobId} is joined: pi is live on the Sprite, so type there (/attach ${job.jobId} reattaches)`
           : `${job.jobId} is still running; reply once it finishes`,
       );
     }

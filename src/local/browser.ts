@@ -1,4 +1,4 @@
-// The job browser behind /handoff status: a full-screen view in the style of /tree
+// The job browser behind /detach status: a full-screen view in the style of /tree
 // and /model. Filters follow the job states (Tab / Shift+Tab, or Ctrl+letter to
 // jump), a preview under the list follows the cursor, Enter picks the job.
 
@@ -113,7 +113,7 @@ export type JobAction =
 
 export const ACTION_LABELS: Record<JobAction, string> = {
   reply: "Reply: answer or ask for more",
-  join: "Join on the Sprite: work with it live",
+  join: "Attach: work with it live on the Sprite",
   watch: "Watch: follow the run, or replay the last one",
   show: "Show full message",
   pullHere: "Pull, bring its context into this conversation",
@@ -151,12 +151,12 @@ export function jobActions(job: LocalJob): JobAction[] {
   }
 }
 
-/** One plain line per job, for /handoff status without a UI. */
+/** One plain line per job, for /detach status without a UI. */
 export function plainList(jobs: readonly LocalJob[], filter: JobFilter, now: number): string {
   const shown = sortJobs(jobs).filter((job) => matchesFilter(job, filter));
-  if (shown.length === 0) return `☁ No handoff jobs (${FILTER_LABELS[filter]}).`;
+  if (shown.length === 0) return `☁ No detached jobs (${FILTER_LABELS[filter]}).`;
   return [
-    `☁ Handoff jobs (${FILTER_LABELS[filter]})`,
+    `☁ Detached jobs (${FILTER_LABELS[filter]})`,
     ...shown.map((job) =>
       [job.jobId, outcomeLabel(job.state), conversationName(job), job.jobBranch ?? "", jobAge(job, now)]
         .filter(Boolean)
@@ -284,7 +284,7 @@ export class JobBrowser implements Component {
     const rule = t.fg("accent", "─".repeat(width));
     const lines: string[] = [rule];
 
-    const title = t.fg("accent", t.bold(" Handoff jobs"));
+    const title = t.fg("accent", t.bold(" Detached jobs"));
     const status = this.#refreshing ? t.fg("dim", "refreshing from the Sprite…") : "";
     lines.push(this.#spread(title, status, width));
 
@@ -298,7 +298,7 @@ export class JobBrowser implements Component {
     lines.push("");
 
     if (visible.length === 0) {
-      const empty = this.#jobs.length === 0 ? "No handoff jobs yet. Start one with /handoff [prompt]." : "No jobs here.";
+      const empty = this.#jobs.length === 0 ? "No detached jobs yet. Start one with /detach [prompt]." : "No jobs here.";
       lines.push(t.fg("muted", ` ${empty}`));
     } else {
       const start = Math.min(Math.max(0, index - Math.floor(LIST_ROWS / 2)), Math.max(0, visible.length - LIST_ROWS));

@@ -1,4 +1,4 @@
-// Tools for the model: the same actions as /handoff, so it can hand work off, check on
+// Tools for the model: the same actions as /detach, so it can hand work off, check on
 // jobs, answer them and bring their context back. They call the same functions as the
 // commands. What costs money, cleans the Sprite or stops a run asks the user first.
 //
@@ -15,9 +15,9 @@ import { outcomeLabel } from "./outcome.ts";
 import { pullJob, retryWayBack, StillRunningError, stopJob } from "./pull.ts";
 import { needsWayBack } from "./wayback.ts";
 import { pushJob } from "./push.ts";
-import { HandoffCancelledError } from "./git.ts";
+import { DetachCancelledError } from "./git.ts";
 import { canReply, replyJob } from "./reply.ts";
-import type { HandoffRuntime } from "./runtime.ts";
+import type { DetachRuntime } from "./runtime.ts";
 import { lastCompletedLeaf } from "./session.ts";
 import { blockers, canCleanup, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
 
@@ -36,7 +36,7 @@ const DECLINED = "The user declined. Do not try again unless they ask for it.";
 
 async function jobOrThrow(id: string): Promise<LocalJob> {
   const job = await readJob(id.trim());
-  if (job === undefined) throw new Error(`no job ${id}; handoff_status lists them`);
+  if (job === undefined) throw new Error(`no job ${id}; detach_status lists them`);
   return job;
 }
 
@@ -58,15 +58,15 @@ function describeJob(job: LocalJob): string {
   return lines.join("\n");
 }
 
-export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime): void {
+export function registerDetachTools(pi: ExtensionAPI, runtime: DetachRuntime): void {
   pi.registerTool({
-    name: "handoff_status",
-    label: "Handoff status",
+    name: "detach_status",
+    label: "Detach status",
     description:
-      "List the user's handoff jobs (conversations handed off to a cloud machine), or show one in full: its state, branch, question and last message. Use it before replying to, pulling or aborting a job.",
-    promptSnippet: "handoff_status: list handoff jobs or show one in full",
+      "List the user's detached jobs (conversations detached to a cloud machine), or show one in full: its state, branch, question and last message. Use it before replying to, pulling or aborting a job.",
+    promptSnippet: "detach_status: list detached jobs or show one in full",
     parameters: Type.Object({
-      job: Type.Optional(Type.String({ description: "A job id such as h3 or h1k, to show in full" })),
+      job: Type.Optional(Type.String({ description: "A job id such as d3 or d1k, to show in full" })),
       filter: Type.Optional(
         Type.String({ description: "all (default; leaves out pulled and dropped jobs), running, joined, needs-input, done, failed, aborted, pulled or dropped; ignored with job" }),
       ),
@@ -90,13 +90,13 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
   });
 
   pi.registerTool({
-    name: "handoff_reply",
-    label: "Handoff reply",
+    name: "detach_reply",
+    label: "Detach reply",
     description:
       "Start another run of a finished job (done, needs input, failed or aborted) with a message: answer its question, or ask for more work. It runs on the cloud machine; the user gets a card when it ends. Not for a running or pulled job.",
-    promptSnippet: "handoff_reply: answer a finished handoff job or ask it for more work",
+    promptSnippet: "detach_reply: answer a finished detached job or ask it for more work",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3 or h1k" }),
+      job: Type.String({ description: "The job id, such as d3 or d1k" }),
       text: Type.String({ description: "The message for the job: the answer, or the next task" }),
     }),
     executionMode: "sequential",
@@ -110,13 +110,13 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
   });
 
   pi.registerTool({
-    name: "handoff_pull",
-    label: "Handoff pull",
+    name: "detach_pull",
+    label: "Detach pull",
     description:
       "Bring a finished job back: its conversation is saved on the laptop, the cloud machine is cleaned up, its work comes back (the folder's branch is fast-forwarded to it, or it waits in the job's pull request), and you get a summary of what it did, its commits, where its code is and its final message to continue from. Do not merge or copy the code yourself unless the user asks. On a pulled job whose work could not come back yet, it tries again; otherwise it returns the summary again. The user is asked to confirm.",
-    promptSnippet: "handoff_pull: bring a finished job back and read what it did",
+    promptSnippet: "detach_pull: bring a finished job back and read what it did",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3 or h1k" }),
+      job: Type.String({ description: "The job id, such as d3 or d1k" }),
       abort: Type.Optional(Type.Boolean({ description: "Stop a run in progress first (only if the user wants the job stopped)" })),
       worktree: Type.Optional(Type.Boolean({ description: "Also check the job branch out in a local worktree" })),
     }),
@@ -148,29 +148,29 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
         const { content } = await buildJobContext(ctx, job, progress);
         return text(content);
       } catch (error: unknown) {
-        return text(`${job.jobId} is pulled, but its summary failed: ${(error as Error).message}. Call handoff_pull again to retry.`);
+        return text(`${job.jobId} is pulled, but its summary failed: ${(error as Error).message}. Call detach_pull again to retry.`);
       }
     },
   });
 
   pi.registerTool({
-    name: "handoff_join",
-    label: "Handoff join",
+    name: "detach_attach",
+    label: "Attach",
     description:
       "Open a terminal for the user on a finished job, with interactive pi on its conversation on the cloud machine (a split next to this window). The user types there; you do not. Not for a running job unless abort is set, which stops its run (the user is asked).",
-    promptSnippet: "handoff_join: open the user a live session on a finished job",
+    promptSnippet: "detach_attach: open the user a live session on a finished job",
     parameters: Type.Object({
-      job: Type.String({ description: "The job id, such as h3 or h1k" }),
+      job: Type.String({ description: "The job id, such as d3 or d1k" }),
       abort: Type.Optional(Type.Boolean({ description: "Stop the job's run in progress first" })),
     }),
     executionMode: "sequential",
     async execute(_id, params, _signal, onUpdate, ctx) {
       const job = await jobOrThrow(params.job);
       if (!canJoin(job) && !(params.abort && ACTIVE_STATES.includes(job.state))) {
-        throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: it cannot be joined now`);
+        throw new Error(`${job.jobId} is ${outcomeLabel(job.state)}: it cannot be attached to now`);
       }
       if (params.abort) {
-        const ok = await confirmed(ctx, `Stop ${job.jobId} and join it?`, `Stop the run of "${conversationName(job)}" now; the work so far stays.`);
+        const ok = await confirmed(ctx, `Stop ${job.jobId} and attach to it?`, `Stop the run of "${conversationName(job)}" now; the work so far stays.`);
         if (!ok) return text(DECLINED);
       }
       try {
@@ -190,12 +190,12 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
   });
 
   pi.registerTool({
-    name: "handoff_abort",
-    label: "Handoff abort",
+    name: "detach_abort",
+    label: "Detach abort",
     description:
       "Stop a job's run in progress (or a joined session). The work so far stays on the cloud machine and on its branch; the job can be replied to or pulled later. The user is asked to confirm.",
-    promptSnippet: "handoff_abort: stop a running handoff job",
-    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3 or h1k" }) }),
+    promptSnippet: "detach_abort: stop a running detached job",
+    parameters: Type.Object({ job: Type.String({ description: "The job id, such as d3 or d1k" }) }),
     executionMode: "sequential",
     async execute(_id, params, _signal, onUpdate, ctx) {
       const job = await jobOrThrow(params.job);
@@ -213,12 +213,12 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
   });
 
   pi.registerTool({
-    name: "handoff_cleanup",
-    label: "Handoff cleanup",
+    name: "detach_cleanup",
+    label: "Detach cleanup",
     description:
-      "Remove what pulling a job left on the laptop: its worktree, its local branch and the fetched origin branch. Only for a pulled job whose work is merged into its base branch and whose worktree has no uncommitted changes; otherwise it refuses and says why. It never deletes anything on origin and cannot discard unmerged work: only the user can, with the /handoff cleanup command and its options. The user is asked to confirm.",
-    promptSnippet: "handoff_cleanup: remove a pulled, merged job's worktree and branch",
-    parameters: Type.Object({ job: Type.String({ description: "The job id, such as h3 or h1k" }) }),
+      "Remove what pulling a job left on the laptop: its worktree, its local branch and the fetched origin branch. Only for a pulled job whose work is merged into its base branch and whose worktree has no uncommitted changes; otherwise it refuses and says why. It never deletes anything on origin and cannot discard unmerged work: only the user can, with the /detach cleanup command and its options. The user is asked to confirm.",
+    promptSnippet: "detach_cleanup: remove a pulled, merged job's worktree and branch",
+    parameters: Type.Object({ job: Type.String({ description: "The job id, such as d3 or d1k" }) }),
     executionMode: "sequential",
     async execute(_id, params, _signal, onUpdate, ctx) {
       const job = await jobOrThrow(params.job);
@@ -231,7 +231,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
       const reasons = blockers(plan, options);
       if (reasons.length > 0) {
         return text(
-          `Not cleaned up: ${reasons.join("; and ")}. Tell the user; they can run /handoff cleanup ${job.jobId} --discard to remove it anyway.`,
+          `Not cleaned up: ${reasons.join("; and ")}. Tell the user; they can run /detach cleanup ${job.jobId} --discard to remove it anyway.`,
         );
       }
       const items = describePlan(plan, options);
@@ -251,11 +251,11 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
   });
 
   pi.registerTool({
-    name: "handoff_start",
-    label: "Handoff start",
+    name: "detach_start",
+    label: "Detach start",
     description:
-      "Hand this work off to run unattended on a cloud machine, so the user can leave. The job continues this conversation up to your last finished message, with the working tree as it is now (uncommitted changes included, pushed to a new branch on origin). It does NOT see the current turn: your prompt must say what the user asked for and what you already did and found in this turn. Afterwards tell the user it is handed off and stop: do not continue the work yourself. The user is asked to confirm.",
-    promptSnippet: "handoff_start: hand the work off to a cloud machine to run unattended",
+      "Detach this work to run unattended on a cloud machine, so the user can leave. The job continues this conversation up to your last finished message, with the working tree as it is now (uncommitted changes included, pushed to a new branch on origin). It does NOT see the current turn: your prompt must say what the user asked for and what you already did and found in this turn. Afterwards tell the user it is detached and stop: do not continue the work yourself. The user is asked to confirm.",
+    promptSnippet: "detach_start: hand the work off to a cloud machine to run unattended",
     parameters: Type.Object({
       prompt: Type.String({
         description: "What the job should do, self-contained: the task, what is already done in this turn, and anything it must know",
@@ -265,7 +265,7 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
     async execute(_id, params, _signal, onUpdate, ctx) {
       const leaf = lastCompletedLeaf(ctx.sessionManager.getBranch());
       if (leaf === undefined) {
-        throw new Error("nothing to fork from yet: the conversation has no finished assistant message. Answer first, then hand off.");
+        throw new Error("nothing to fork from yet: the conversation has no finished assistant message. Answer first, then detach.");
       }
       const preview = params.prompt.length > 400 ? `${params.prompt.slice(0, 400)}…` : params.prompt;
       const ok = await confirmed(
@@ -283,14 +283,14 @@ export function registerHandoffTools(pi: ExtensionAPI, runtime: HandoffRuntime):
           { fromLeafId: leaf },
         );
       } catch (error: unknown) {
-        if (error instanceof HandoffCancelledError) return text(`${error.message} Tell the user; do not hand off again unless they ask.`);
+        if (error instanceof DetachCancelledError) return text(`${error.message} Tell the user; do not detach again unless they ask.`);
         throw error;
       }
       const { job, notes } = pushed;
       await runtime.refreshStatusLine();
       return text(
         [
-          `Handed off as job ${job.jobId}${job.jobBranch === undefined ? "" : ` on branch ${job.jobBranch}`}.`,
+          `Detached as job ${job.jobId}${job.jobBranch === undefined ? "" : ` on branch ${job.jobBranch}`}.`,
           ...notes,
           "It runs on the cloud machine now; the user gets a card in this window when it finishes or needs input. Tell the user, and stop: do not continue this work here.",
         ].join(" "),

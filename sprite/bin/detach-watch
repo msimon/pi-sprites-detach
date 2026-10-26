@@ -1,5 +1,5 @@
 #!/bin/bash
-# detach-watch <jobId>: stream the events of a job's last run (/handoff watch).
+# detach-watch <jobId>: stream the events of a job's last run (/detach watch).
 #
 # Prints the lines of ~/.detach/<jobId>/events.jsonl (pi's --mode json stream), from
 # the start of the last run (each run begins with a session header; the file is

@@ -1,25 +1,24 @@
-// pi-handoff local extension, loaded on the laptop.
+// pi-sprites-detach local extension, loaded on the laptop.
 //
-//   /handoff [prompt]          hand the conversation off to the Sprite as a new job
-//   /handoff sync              bring the Sprite's pi setup in line with the laptop
-//   /handoff status [filter]   browse jobs (all, running, joined, needs-input, done, failed, aborted, pulled, dropped)
-//   /handoff reply [job] [text]
+//   /detach [prompt]          detach the conversation to the Sprite as a new job
+//   /detach sync              bring the Sprite's pi setup in line with the laptop
+//   /detach status [filter]   browse jobs (all, running, joined, needs-input, done, failed, aborted, pulled, dropped)
+//   /detach reply [job] [text]
 //                              another run of a finished job: an answer, or more work
-//   /handoff pull [job] [--here] [--switch] [--abort] [--worktree]
+//   /detach pull [job] [--here] [--switch] [--abort] [--worktree]
 //                              bring a job's conversation and work back; --here also
 //                              brings its context into this conversation
-//   /handoff join [job] [--abort]
-//                              work with a job's agent live on the Sprite (a cmux split)
-//   /handoff watch [job]       follow a run live (read-only), or replay a finished job's last run
-//   /handoff cleanup [job] [--discard] [--remote]
+//   /detach watch [job]       follow a run live (read-only), or replay a finished job's last run
+//   /detach cleanup [job] [--discard] [--remote]
 //                              remove a pulled job's worktree and branches from the laptop
-//   /handoff drop [job] [--keep-branch]
+//   /detach drop [job] [--keep-branch]
 //                              discard a job's work (stopping its run); keep its conversation
+//   /attach [job] [--abort]   work with a job's agent live on the Sprite (a cmux split)
 //
-// A prompt for /handoff cannot start with one of these words; they are read as the
-// subcommand.
+// A prompt for /detach cannot start with one of the subcommand words; they are read
+// as the subcommand.
 //
-// Does nothing when loaded inside a handoff run on the Sprite.
+// Does nothing when loaded inside a job run on the Sprite.
 
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -55,10 +54,10 @@ import { canReply, replyJob } from "./reply.ts";
 import { canJoin, joinJob, openSplit, RunInProgressError } from "./join.ts";
 import { DEFAULT_PROMPT, pushJob } from "./push.ts";
 import { migrateLegacyHome } from "./migrate.ts";
-import { HandoffCancelledError } from "./git.ts";
-import { HandoffRuntime } from "./runtime.ts";
+import { DetachCancelledError } from "./git.ts";
+import { DetachRuntime } from "./runtime.ts";
 import { syncSprite } from "./sync.ts";
-import { registerHandoffTools } from "./tools.ts";
+import { registerDetachTools } from "./tools.ts";
 import { canWatch, isLive, startWatchStream, type WatchStream, WatchView } from "./watch.ts";
 import { blockers, canCleanup, type CleanupOptions, cleanupJob, describePlan, planCleanup } from "./cleanup.ts";
 import { canDrop, type DropOptions, DropRefusedError, dropJob, dropStopsRun } from "./drop.ts";
@@ -75,7 +74,6 @@ const SUBCOMMANDS = [
     usage: "pull [job] [options]",
     description: "bring a job back. Options: --here, --switch, --abort, --worktree",
   },
-  { name: "join", usage: "join [job]", description: "work with a job's agent live on the Sprite" },
   { name: "watch", usage: "watch [job]", description: "follow a run live, read-only, or replay the last one" },
   {
     name: "cleanup",
@@ -94,17 +92,17 @@ const PULL_FLAGS = {
 const TYPED_FILTERS = JOB_FILTERS.map((f) => f.replace("_", "-"));
 
 /**
- * Jobs /handoff pull can take without --abort: their run has ended (same as reply),
+ * Jobs /detach pull can take without --abort: their run has ended (same as reply),
  * or they are pulled and their work still waits to come back (a retry).
  */
 const isPullable = (job: LocalJob): boolean => canReply(job) || needsWayBack(job);
 
-export default function handoffLocal(pi: ExtensionAPI): void {
+export default function detachLocal(pi: ExtensionAPI): void {
   if (process.env.DETACH_JOB_ID !== undefined) return;
 
-  const runtime = new HandoffRuntime(pi);
+  const runtime = new DetachRuntime(pi);
   registerOutcomeRenderer(pi);
-  registerHandoffTools(pi, runtime);
+  registerDetachTools(pi, runtime);
 
   pi.on("session_start", async (_event, ctx) => {
     try {
@@ -114,7 +112,7 @@ export default function handoffLocal(pi: ExtensionAPI): void {
       await ensureSpriteBuild();
       await runtime.start(ctx);
     } catch (error: unknown) {
-      ctx.ui.notify(`[pi-handoff] ${(error as Error).message}`, "error");
+      ctx.ui.notify(`[pi-sprites-detach] ${(error as Error).message}`, "error");
     }
   });
 
@@ -122,8 +120,31 @@ export default function handoffLocal(pi: ExtensionAPI): void {
     runtime.stop();
   });
 
-  pi.registerCommand("handoff", {
-    description: "Hand this conversation off to a Sprite (/handoff [prompt] | sync | status | reply | pull | join | watch | cleanup)",
+  pi.registerCommand("attach", {
+    description: "Work with a job's agent live on the Sprite, in a split (/attach [job] [--abort])",
+    getArgumentCompletions: async (prefix) => {
+      const words = prefix.trimStart().split(/\s+/);
+      const typed = words.pop() ?? "";
+      const jobs = (await listJobs())
+        .filter(canJoin)
+        .map((j) => ({ word: j.jobId, description: `${outcomeLabel(j.state)} · ${conversationName(j)}` }));
+      return [...jobs, { word: "--abort", description: "stop a run in progress first" }]
+        .filter(({ word }) => word.startsWith(typed) && !words.includes(word))
+        .map(({ word, description }) => ({ value: [...words, word].join(" "), label: word, description }));
+    },
+    handler: async (args, ctx) => {
+      try {
+        await joinCommand(ctx, runtime, args.trim() === "" ? [] : args.trim().split(/\s+/));
+      } catch (error: unknown) {
+        notifySafely(ctx, `[pi-sprites-detach] ${(error as Error).message}`, "error");
+      } finally {
+        clearProgress(ctx);
+      }
+    },
+  });
+
+  pi.registerCommand("detach", {
+    description: "Detach this conversation to a Sprite (/detach [prompt] | sync | status | reply | pull | watch | cleanup | drop)",
     getArgumentCompletions: async (prefix) => {
       const text = prefix.trimStart();
       if (text.startsWith("status ")) {
@@ -142,18 +163,6 @@ export default function handoffLocal(pi: ExtensionAPI): void {
           .filter((j) => canReply(j) && j.jobId.startsWith(typed))
           .map((j) => ({
             value: `reply ${j.jobId} `,
-            label: j.jobId,
-            description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
-          }));
-      }
-      if (text.startsWith("join ")) {
-        const words = text.slice("join ".length).split(/\s+/);
-        if (words.length > 1) return null;
-        const typed = words[0] ?? "";
-        return (await listJobs())
-          .filter((j) => canJoin(j) && j.jobId.startsWith(typed))
-          .map((j) => ({
-            value: `join ${j.jobId}`,
             label: j.jobId,
             description: `${outcomeLabel(j.state)} · ${conversationName(j)}`,
           }));
@@ -219,14 +228,13 @@ export default function handoffLocal(pi: ExtensionAPI): void {
         else if (subcommand === "status") await statusCommand(pi, ctx, runtime, rest.join(" "));
         else if (subcommand === "pull") await pullCommand(pi, ctx, runtime, rest);
         else if (subcommand === "reply") await replyCommand(ctx, runtime, trimmed.slice("reply".length).trim());
-        else if (subcommand === "join") await joinCommand(ctx, runtime, rest);
         else if (subcommand === "watch") await watchCommand(ctx, runtime, rest);
         else if (subcommand === "cleanup") await cleanupCommand(ctx, runtime, rest);
         else if (subcommand === "drop") await dropCommand(ctx, runtime, rest);
         else await pushCommand(ctx, runtime, trimmed === "" ? DEFAULT_PROMPT : trimmed);
       } catch (error: unknown) {
         const message = (error as Error).message;
-        notifySafely(ctx, error instanceof StillRunningError ? `☁ ${message}` : `[pi-handoff] ${message}`, "error");
+        notifySafely(ctx, error instanceof StillRunningError ? `☁ ${message}` : `[pi-sprites-detach] ${message}`, "error");
       } finally {
         clearProgress(ctx);
       }
@@ -259,7 +267,7 @@ const progressTo =
     ctx.ui.setWidget(PROGRESS_KEY, [`${theme.fg("accent", `☁ ${title}:`)} ${theme.fg("muted", text)}`]);
   };
 
-async function pushCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, prompt: string): Promise<void> {
+async function pushCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, prompt: string): Promise<void> {
   let pushed: Awaited<ReturnType<typeof pushJob>>;
   try {
     pushed = await pushJob(
@@ -272,13 +280,13 @@ async function pushCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
       progressTo(ctx, "Handing off"),
     );
   } catch (error: unknown) {
-    if (!(error instanceof HandoffCancelledError)) throw error;
+    if (!(error instanceof DetachCancelledError)) throw error;
     ctx.ui.notify(`☁ ${error.message}`, "info");
     return;
   }
   const { job, synced, notes } = pushed;
   const lines = [
-    `☁ Handoff started: job ${job.jobId} on Sprite ${job.sprite}`,
+    `☁ Detached: job ${job.jobId} on Sprite ${job.sprite}`,
     `Conversation: ${conversationName(job)}`,
     job.jobBranch === undefined
       ? "No git repo here: the job has the conversation only."
@@ -309,7 +317,7 @@ async function syncCommand(ctx: ExtensionCommandContext): Promise<void> {
 async function statusCommand(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   typedFilter: string,
 ): Promise<void> {
   const filter = typedFilter === "" ? "all" : parseFilter(typedFilter);
@@ -384,7 +392,7 @@ async function statusCommand(
         const ok = await ctx.ui.confirm(
           `Abort ${job.jobId}?`,
           job.state === "joined"
-            ? `Quit the pi you joined on the Sprite for "${conversationName(job)}". The conversation and its work stay there; join, reply or pull later.`
+            ? `Quit the pi you attached to on the Sprite for "${conversationName(job)}". The conversation and its work stay there; attach, reply or pull later.`
             : `Stop "${conversationName(job)}" now. Its work so far stays on the Sprite and on ${job.jobBranch ?? "the job"}; pull it or reply later.`,
         );
         if (!ok) continue;
@@ -405,11 +413,11 @@ async function statusCommand(
   }
 }
 
-/** /handoff pull [job] [--abort] [--switch] [--worktree] [--here] */
+/** /detach pull [job] [--abort] [--switch] [--worktree] [--here] */
 async function pullCommand(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   words: string[],
 ): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
@@ -424,7 +432,7 @@ async function pullCommand(
 
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, isPullable, "Pull which job?", "no finished job to pull; /handoff status lists them all")
+      ? await pickJob(ctx, isPullable, "Pull which job?", "no finished job to pull; /detach status lists them all")
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
@@ -433,7 +441,7 @@ async function pullCommand(
   if (job.state === "pulled") {
     if (here) return runContextHere(pi, ctx, job);
     if (needsWayBack(job)) return runRetryWayBack(ctx, runtime, job);
-    throw new Error(`${job.jobId} is already pulled; open it with /handoff status, or bring its context here with --here`);
+    throw new Error(`${job.jobId} is already pulled; open it with /detach status, or bring its context here with --here`);
   }
 
   await runPull(pi, ctx, runtime, job, {
@@ -463,17 +471,17 @@ async function pickJob(
   return candidates[labels.indexOf(choice ?? "")];
 }
 
-/** /handoff join [job] [--abort] */
-async function joinCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+/** /attach [job] [--abort] */
+async function joinCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, words: string[]): Promise<void> {
   const abort = words.includes("--abort");
   const unknown = words.filter((w) => w.startsWith("--") && w !== "--abort");
   if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use --abort`);
   const ids = words.filter((w) => !w.startsWith("--"));
-  if (ids.length > 1) throw new Error("join one job at a time");
+  if (ids.length > 1) throw new Error("attach to one job at a time");
 
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, canJoin, "Join which job?", await noJoinableMessage())
+      ? await pickJob(ctx, canJoin, "Attach to which job?", await noJoinableMessage())
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
@@ -482,8 +490,8 @@ async function joinCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
   await runJoin(ctx, runtime, job, { abort });
 }
 
-/** /handoff watch [job]: a read-only view of a run as it happens, or of a finished job's last run. */
-async function watchCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+/** /detach watch [job]: a read-only view of a run as it happens, or of a finished job's last run. */
+async function watchCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, words: string[]): Promise<void> {
   if (words.length > 1) throw new Error("watch one job at a time");
   let job: LocalJob | undefined;
   if (words[0] !== undefined) {
@@ -491,16 +499,16 @@ async function watchCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntim
     if (job === undefined) throw new Error(`no job ${words[0]}`);
   } else {
     const live = (await listJobs()).filter((j) => canWatch(j) && isLive(j));
-    job = live.length === 1 ? live[0] : await pickJob(ctx, canWatch, "Watch which job?", "no job to watch; /handoff status lists them all");
+    job = live.length === 1 ? live[0] : await pickJob(ctx, canWatch, "Watch which job?", "no job to watch; /detach status lists them all");
   }
   if (job === undefined) return;
   await runWatch(ctx, runtime, job);
 }
 
-async function runWatch(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob): Promise<void> {
-  if (!ctx.hasUI) throw new Error("/handoff watch needs the terminal UI");
+async function runWatch(ctx: ExtensionCommandContext, runtime: DetachRuntime, job: LocalJob): Promise<void> {
+  if (!ctx.hasUI) throw new Error("/detach watch needs the terminal UI");
   if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}: its events are no longer on the Sprite`);
-  if (job.state === "joined") throw new Error(`${job.jobId} is joined, so it is not streamed: attach to it with /handoff join ${job.jobId}`);
+  if (job.state === "joined") throw new Error(`${job.jobId} is joined, so it is not streamed: attach to it with /attach ${job.jobId}`);
 
   // The Sprite needs the detach-watch script; this is one small read when nothing changed.
   const progress = progressTo(ctx, `Watching ${job.jobId}`);
@@ -530,8 +538,8 @@ const CLEANUP_FLAGS = {
   "--remote": "also delete the job branch on origin",
 } as const;
 
-/** /handoff cleanup [job] [--discard] [--remote]: remove a pulled job's worktree and branches on the laptop. */
-async function cleanupCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+/** /detach cleanup [job] [--discard] [--remote]: remove a pulled job's worktree and branches on the laptop. */
+async function cleanupCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, words: string[]): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
   const unknown = [...flags].filter((f) => !Object.hasOwn(CLEANUP_FLAGS, f));
   if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(CLEANUP_FLAGS).join(", ")}`);
@@ -540,7 +548,7 @@ async function cleanupCommand(ctx: ExtensionCommandContext, runtime: HandoffRunt
 
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, canCleanup, "Clean up which job?", "no pulled job with a branch to clean up; /handoff status pulled lists them")
+      ? await pickJob(ctx, canCleanup, "Clean up which job?", "no pulled job with a branch to clean up; /detach status pulled lists them")
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
@@ -552,7 +560,7 @@ async function cleanupCommand(ctx: ExtensionCommandContext, runtime: HandoffRunt
 /** Show what will go and ask, then remove it. Unmerged or uncommitted work is refused without --discard. */
 async function runCleanup(
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   job: LocalJob,
   options: CleanupOptions,
 ): Promise<void> {
@@ -573,7 +581,7 @@ async function runCleanup(
     ctx.ui.notify(
       removed.length === 0
         ? `☁ Job ${job.jobId}: nothing was left to remove.`
-        : `☁ Cleaned up job ${job.jobId}: removed ${removed.join(", ")}. Its conversation is kept (/handoff status, /resume).`,
+        : `☁ Cleaned up job ${job.jobId}: removed ${removed.join(", ")}. Its conversation is kept (/detach status, /resume).`,
       "info",
     );
     await runtime.refreshStatusLine();
@@ -584,8 +592,8 @@ async function runCleanup(
 
 const DROP_FLAGS = { "--keep-branch": "keep the job branch on origin" } as const;
 
-/** /handoff drop [job] [--keep-branch]: discard a job's work (stopping its run), keep its conversation. */
-async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, words: string[]): Promise<void> {
+/** /detach drop [job] [--keep-branch]: discard a job's work (stopping its run), keep its conversation. */
+async function dropCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, words: string[]): Promise<void> {
   const flags = new Set(words.filter((w) => w.startsWith("--")));
   const unknown = [...flags].filter((f) => !Object.hasOwn(DROP_FLAGS, f));
   if (unknown.length > 0) throw new Error(`unknown option ${unknown.join(", ")}; use ${Object.keys(DROP_FLAGS).join(", ")}`);
@@ -593,7 +601,7 @@ async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
   if (ids.length > 1) throw new Error("drop one job at a time");
   const job =
     ids[0] === undefined
-      ? await pickJob(ctx, canDrop, "Drop which job?", "no job to drop; /handoff status lists them all")
+      ? await pickJob(ctx, canDrop, "Drop which job?", "no job to drop; /detach status lists them all")
       : await readJob(ids[0]);
   if (job === undefined) {
     if (ids[0] !== undefined) throw new Error(`no job ${ids[0]}`);
@@ -605,7 +613,7 @@ async function dropCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime
 /** Ask, then drop. Without a UI there is nobody to ask: refuse, as the work would be lost. */
 async function runDrop(
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   job: LocalJob,
   options: Pick<DropOptions, "keepBranch">,
 ): Promise<void> {
@@ -636,29 +644,29 @@ async function runDrop(
   }
 }
 
-/** Why /handoff join has no job to offer: say when one is still running. */
+/** Why /attach has no job to offer: say when one is still running. */
 async function noJoinableMessage(): Promise<string> {
   const running = (await listJobs()).filter((j) => ACTIVE_STATES.includes(j.state) && j.state !== "joined");
   const first = running[0];
-  if (first === undefined) return "no job to join; /handoff status lists them all";
+  if (first === undefined) return "no job to attach to; /detach status lists them all";
   const ids = running.map((j) => j.jobId).join(", ");
   return running.length === 1
-    ? `${ids} is still running, and a running job can't be joined. Join once it finishes (a card will appear), or stop its run and join now with /handoff join ${first.jobId} --abort.`
-    : `${ids} are still running, and a running job can't be joined. Join once one finishes (a card will appear), or stop a run and join now with /handoff join <job> --abort.`;
+    ? `${ids} is still running, and a running job can't be attached to. Attach once it finishes (a card will appear), or stop its run and attach now with /attach ${first.jobId} --abort.`
+    : `${ids} are still running, and a running job can't be attached to. Attach once one finishes (a card will appear), or stop a run and attach now with /attach <job> --abort.`;
 }
 
 /**
- * Join: start (or find) pi on the Sprite, then attach a terminal to it. A run in
+ * Attach: start (or find) pi on the Sprite, then attach a terminal to it. A run in
  * progress is stopped first only with --abort, or when the user agrees.
  */
 async function runJoin(
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   job: LocalJob,
   { abort }: { abort: boolean },
 ): Promise<void> {
   if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
-  const progress = progressTo(ctx, `Joining ${job.jobId}`);
+  const progress = progressTo(ctx, `Attaching to ${job.jobId}`);
   let outcome;
   try {
     outcome = await joinJob(job, { abort }, progress);
@@ -666,7 +674,7 @@ async function runJoin(
     if (!(error instanceof RunInProgressError) || abort || !ctx.hasUI) throw error;
     const stop = await ctx.ui.confirm(
       `${job.jobId} is running`,
-      `Stop its run to join it now? The work so far stays on the Sprite; the agent picks up from the conversation.`,
+      `Stop its run to attach now? The work so far stays on the Sprite; the agent picks up from the conversation.`,
     );
     if (!stop) return;
     outcome = await joinJob((await readJob(job.jobId)) ?? job, { abort: true }, progress);
@@ -674,7 +682,7 @@ async function runJoin(
 
   const split = await openSplit(outcome.attachCommand);
   const lines = [
-    `☁ ${outcome.already ? "Rejoined" : "Joined"} job ${job.jobId}: ${conversationName(job)}`,
+    `☁ ${outcome.already ? "Reattached to" : "Attached to"} job ${job.jobId}: ${conversationName(job)}`,
     split
       ? "pi is open in the split next to this pane, on the Sprite."
       : `pi is running on Sprite ${job.sprite}. Attach to it from any terminal:\n${outcome.attachCommand}`,
@@ -686,8 +694,8 @@ async function runJoin(
   await runtime.refreshStatusLine();
 }
 
-/** /handoff reply [job] [text]: without text, ask for it. */
-async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntime, args: string): Promise<void> {
+/** /detach reply [job] [text]: without text, ask for it. */
+async function replyCommand(ctx: ExtensionCommandContext, runtime: DetachRuntime, args: string): Promise<void> {
   // Ids are d (or h) + base 36, so a first word like "hey" or "do" is id-shaped: it
   // names a job only if that job exists; otherwise it is the start of the text.
   const first = /^(\S+)(?:\s+([\s\S]*))?$/.exec(args);
@@ -697,20 +705,20 @@ async function replyCommand(ctx: ExtensionCommandContext, runtime: HandoffRuntim
   const named = firstJob === undefined ? null : first;
   const job =
     firstJob ??
-    (await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /handoff status lists them all"));
+    (await pickJob(ctx, canReply, "Reply to which job?", "no finished job to reply to; /detach status lists them all"));
   if (job === undefined) return;
   if (isOffSprite(job)) throw new Error(`${job.jobId} is ${job.state}; continue in its conversation instead`);
   if (!canReply(job)) {
     throw new Error(
       job.state === "joined"
-        ? `${job.jobId} is joined: pi is live on the Sprite, so type there (/handoff join ${job.jobId} reattaches)`
+        ? `${job.jobId} is joined: pi is live on the Sprite, so type there (/attach ${job.jobId} reattaches)`
         : `${job.jobId} is still running; reply once it finishes`,
     );
   }
 
   let text = named ? (named[2] ?? "") : args;
   if (text.trim() === "") {
-    if (!ctx.hasUI) throw new Error("usage: /handoff reply [job] <text>");
+    if (!ctx.hasUI) throw new Error("usage: /detach reply [job] <text>");
     const asked = await askReply(ctx, job);
     if (asked === undefined) return;
     text = asked;
@@ -737,7 +745,7 @@ async function askReply(ctx: ExtensionCommandContext, job: LocalJob): Promise<st
   return text === undefined || text.trim() === "" ? undefined : text;
 }
 
-async function runReply(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob, text: string): Promise<void> {
+async function runReply(ctx: ExtensionCommandContext, runtime: DetachRuntime, job: LocalJob, text: string): Promise<void> {
   const { synced } = await replyJob(job, text, progressTo(ctx, `Replying to ${job.jobId}`));
   const lines = [
     `☁ Replied to job ${job.jobId}: ${conversationName(job)}`,
@@ -756,8 +764,8 @@ function workLine(job: LocalJob): string {
   return `Branch: origin/${job.jobBranch} fetched; your working tree is unchanged.`;
 }
 
-/** /handoff pull on a pulled job whose work could not come back yet: try again. */
-async function runRetryWayBack(ctx: ExtensionCommandContext, runtime: HandoffRuntime, job: LocalJob): Promise<void> {
+/** /detach pull on a pulled job whose work could not come back yet: try again. */
+async function runRetryWayBack(ctx: ExtensionCommandContext, runtime: DetachRuntime, job: LocalJob): Promise<void> {
   const { wayBack } = await retryWayBack(job, progressTo(ctx, `Bringing back ${job.jobId}`));
   clearProgress(ctx);
   ctx.ui.notify(`☁ ${job.jobId}: ${wayBack.text}`, wayBack.kind === "pending" ? "error" : "info");
@@ -767,7 +775,7 @@ async function runRetryWayBack(ctx: ExtensionCommandContext, runtime: HandoffRun
 async function runPull(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   job: LocalJob,
   options: PullOptions & { switchTo: boolean; here: boolean },
 ): Promise<void> {
@@ -778,7 +786,7 @@ async function runPull(
     `☁ Pulled job ${job.jobId}: ${conversationName(job)}`,
     options.switchTo
       ? "This is its conversation, continued here on the laptop."
-      : "Its conversation is saved with this folder's sessions: open it from /resume or /handoff status.",
+      : "Its conversation is saved with this folder's sessions: open it from /resume or /detach status.",
     workLine(pulled),
     ...(result.snapshot ? ["The agent's uncommitted changes were committed and pushed first."] : []),
     result.cleanupError === undefined
@@ -808,7 +816,7 @@ async function contextHereLine(
     await bringContextHere(pi, ctx, job, progress);
     return `Its context is in this conversation now (the ☁ Context from job ${job.jobId} line; expand it to read).`;
   } catch (error: unknown) {
-    return `Could not bring its context here: ${(error as Error).message}. Try again with /handoff pull ${job.jobId} --here.`;
+    return `Could not bring its context here: ${(error as Error).message}. Try again with /detach pull ${job.jobId} --here.`;
   }
 }
 
@@ -822,7 +830,7 @@ async function runContextHere(pi: ExtensionAPI, ctx: ExtensionCommandContext, jo
 /** Open the browser on the local records; on the first open, refresh them from the Sprite meanwhile. */
 async function browse(
   ctx: ExtensionCommandContext,
-  runtime: HandoffRuntime,
+  runtime: DetachRuntime,
   state: BrowserState,
 ): Promise<BrowserResult | undefined> {
   const jobs = await listJobs();

@@ -1,17 +1,17 @@
-// remote-ask: ask_user_question for handoff jobs on the Sprite.
+// remote-ask: ask_user_question for detached jobs on the Sprite.
 //
-// An example user extension. pi-handoff copies it to ~/.pi-sprites-detach/extensions/ on
+// An example user extension. pi-sprites-detach copies it to ~/.pi-sprites-detach/extensions/ on
 // first run; from then on the copy is yours to edit. The default config swaps
 // @juicesharp/rpiv-ask-user-question for it on the Sprite (`remote.replace`):
 // rpiv hides its tool when there is no UI, and two extensions registering the same
 // tool name stop pi from starting, so only one of them may be loaded there.
 //
 // The runner's contract for questions, which any replacement must follow:
-// - the job's state folder is in $DETACH_DIR (unset outside a handoff run)
+// - the job's state folder is in $DETACH_DIR (unset outside a detach run)
 // - write the questions to $DETACH_DIR/question.json
 // - end the run with `terminate: true`
 // detach-run then reports the job as needs_input, and the answer arrives as the
-// next user message (/handoff reply).
+// next user message (/detach reply).
 //
 // Same tool name and question shape as rpiv, so conversations that used rpiv on the
 // laptop read the same. Options are optional, so open questions work too.
@@ -41,7 +41,7 @@ export default function remoteAsk(pi: ExtensionAPI): void {
   pi.registerTool(
     defineTool({
       name: "ask_user_question",
-      label: "Ask User (handoff)",
+      label: "Ask User (detach)",
       description:
         "Ask the user one or more questions. The user is not watching this run: the questions are delivered as a notification, this run ends, and their answer arrives as the next user message.",
       promptSnippet: "Ask the user; ends the current run until they reply",

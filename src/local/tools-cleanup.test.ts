@@ -8,13 +8,13 @@ import { has, setupPulledJob } from "./git-fixture.ts";
 // Job records live under HOME, set before the modules that read it are loaded.
 const home = mkdtempSync(join(tmpdir(), "pi-detach-tool-"));
 process.env.HOME = home;
-const { registerHandoffTools } = await import("./tools.ts");
+const { registerDetachTools } = await import("./tools.ts");
 const { readJob, writeJob } = await import("./jobs.ts");
 after(() => rmSync(home, { recursive: true, force: true }));
 
 type Tool = { execute: (id: string, params: Record<string, unknown>, signal: undefined, onUpdate: undefined, ctx: unknown) => Promise<{ content: Array<{ text: string }> }> };
 const tools = new Map<string, Tool>();
-registerHandoffTools(
+registerDetachTools(
   { registerTool: (t: Tool & { name: string }) => tools.set(t.name, t) } as never,
   { refreshStatusLine: async () => {}, poll: async () => {} } as never,
 );
@@ -24,7 +24,7 @@ let answer = true;
 const ctx = (hasUI: boolean) => ({ hasUI, ui: { confirm: async (_title: string, message: string) => (asked.push(message), answer) } });
 const cleanup = async (job: string, c = ctx(true)): Promise<string> => {
   try {
-    return (await tools.get("handoff_cleanup")!.execute("id", { job }, undefined, undefined, c)).content[0]!.text;
+    return (await tools.get("detach_cleanup")!.execute("id", { job }, undefined, undefined, c)).content[0]!.text;
   } catch (error) {
     return `THROWS: ${(error as Error).message}`;
   }
@@ -36,8 +36,8 @@ function fresh(name: string, merged: boolean) {
   return setupPulledJob(root, { merged });
 }
 
-test("handoff_cleanup is registered", () => {
-  assert.ok(tools.has("handoff_cleanup"));
+test("detach_cleanup is registered", () => {
+  assert.ok(tools.has("detach_cleanup"));
 });
 
 test("unmerged work: refused without asking, with the command that can force it", async () => {
@@ -46,7 +46,7 @@ test("unmerged work: refused without asking, with the command that can force it"
   asked.length = 0;
   const result = await cleanup("h1");
   assert.match(result, /Not cleaned up: .*does not have yet/);
-  assert.match(result, /\/handoff cleanup h1 --discard/);
+  assert.match(result, /\/detach cleanup h1 --discard/);
   assert.equal(asked.length, 0);
   assert.equal(existsSync(wt), true);
 });

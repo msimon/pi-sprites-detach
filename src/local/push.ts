@@ -1,4 +1,4 @@
-// /handoff [prompt]: split the conversation off into a job and start it on the Sprite.
+// /detach [prompt]: split the conversation off into a job and start it on the Sprite.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,7 +43,7 @@ export interface PushResult {
   notes: string[];
 }
 
-/** What a handoff needs of pi: the command context has it all, a tool's has no waitForIdle. */
+/** What a detach needs of pi: the command context has it all, a tool's has no waitForIdle. */
 export interface PushContext {
   sessionManager: ExtensionContext["sessionManager"];
   waitForIdle?: () => Promise<void>;
@@ -53,7 +53,7 @@ export interface PushContext {
 
 /**
  * `fromLeafId`: fork the conversation at that entry instead of the current leaf, and do
- * not wait for the turn to end. The model's handoff tool uses it, because it runs in
+ * not wait for the turn to end. The model's detach tool uses it, because it runs in
  * the middle of a turn: the copy stops at the last completed assistant message.
  */
 export async function pushJob(
@@ -69,7 +69,7 @@ export async function pushJob(
   const mainSessionFile = ctx.sessionManager.getSessionFile();
   const leafId = fromLeafId ?? ctx.sessionManager.getLeafId();
   if (mainSessionFile === undefined || leafId === null) {
-    throw new Error("this session has no saved conversation to hand off");
+    throw new Error("this session has no saved conversation to detach");
   }
 
   const { config } = await loadConfig();
@@ -86,7 +86,7 @@ export async function pushJob(
     const missing = missingPackageManager(folder, top.stdout.trim(), config.remote.tools);
     if (missing !== undefined) {
       throw new Error(
-        `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-sprites-detach/config.json, and run /handoff again.`,
+        `this repo uses ${missing.tool} (${missing.lockfile}), but ${missing.tool} is not in remote.tools, so the Sprite may not have it. Install it on this laptop if needed, add "${missing.tool}" to remote.tools in ~/.pi-sprites-detach/config.json, and run /detach again.`,
       );
     }
     // A PR needs its base on origin with the local commits (git protocol: base branch).
@@ -212,7 +212,7 @@ export async function pushJob(
       state: "error",
       startedAt: now,
       updatedAt: new Date().toISOString(),
-      error: `handoff failed: ${(error as Error).message}`,
+      error: `detach failed: ${(error as Error).message}`,
     });
     throw error;
   } finally {

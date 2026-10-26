@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export const HOME = homedir();
 
-/** pi-handoff's install on the laptop: config, job records, the Sprite folder. */
+/** pi-sprites-detach's install on the laptop: config, job records, the Sprite folder. */
 export const DETACH_HOME = join(HOME, ".pi-sprites-detach");
 export const CONFIG_FILE = join(DETACH_HOME, "config.json");
 export const JOBS_DIR = join(DETACH_HOME, "jobs");
@@ -14,7 +14,7 @@ export const JOBS_DIR = join(DETACH_HOME, "jobs");
 export const SPRITE_BUILD_DIR = join(DETACH_HOME, "sprite");
 /** Marc's own extensions for the Sprite (remote.replace targets); synced like any sync path. */
 export const USER_EXTENSIONS_DIR = join(DETACH_HOME, "extensions");
-/** Local worktrees made by `/handoff pull --worktree`: <repo>/<jobId> under it. */
+/** Local worktrees made by `/detach pull --worktree`: <repo>/<jobId> under it. */
 export const WORKTREES_DIR = join(HOME, "pi-sprites-detach", "worktrees");
 
 /** Root of this package (the repository, or the installed package). */

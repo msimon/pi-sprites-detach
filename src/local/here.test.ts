@@ -28,7 +28,7 @@ const texts = (entries: ReturnType<typeof jobOwnEntries>): string[] =>
     return typeof m.content === "string" ? m.content : (m.content as Array<{ text?: string }>).map((b) => b.text).join("");
   });
 
-test("jobOwnEntries: only what the job added after the handoff", () => {
+test("jobOwnEntries: only what the job added after detaching", () => {
   const dir = mkdtempSync(join(tmpdir(), "pi-detach-here-"));
   try {
     const main = SessionManager.create(dir, dir);
@@ -43,7 +43,7 @@ test("jobOwnEntries: only what the job added after the handoff", () => {
     jobManager.appendMessage(assistant("job answer"));
     jobManager.appendCustomMessageEntry(RETURN_MESSAGE, "back on the laptop", true);
 
-    // The main conversation went on after the handoff too.
+    // The main conversation went on after detaching too.
     main.appendMessage(user("main went on"));
     main.appendMessage(assistant("main answer"));
 

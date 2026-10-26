@@ -1,4 +1,4 @@
-// /handoff drop: discard a job without bringing its work back. A run in progress is
+// /detach drop: discard a job without bringing its work back. A run in progress is
 // stopped first (abort, then drop, in one). Its conversation is still saved with the
 // folder's sessions, so nothing said is lost; its job branch is deleted on origin
 // (unless keepBranch), the Sprite is cleaned up, and the job becomes `dropped`: hidden
@@ -68,7 +68,7 @@ export const spriteOps: DropSprite = {
 /** Appended to the dropped job's conversation: sent to the model if it is ever opened. */
 export function dropBriefing(job: LocalJob, branchLine: string | undefined): string {
   return [
-    `[pi-handoff] This conversation is back on the user's laptop (macOS). The turns since the handoff ran unattended on a cloud machine as handoff job ${job.jobId}; that machine's copy of the files is gone.`,
+    `[pi-sprites-detach] This conversation is back on the user's laptop (macOS). The turns since detaching ran unattended on a cloud machine as detached job ${job.jobId}; that machine's copy of the files is gone.`,
     `The user dropped this job: its work was discarded, not brought back, so none of it is in the working directory ${job.folder}.`,
     ...(branchLine === undefined ? [] : [branchLine]),
     "The laptop's tools, skills and credentials are available again, and the user is here to answer questions.",
@@ -142,7 +142,7 @@ async function finishDrop(
       ...(branch === undefined ? {} : { jobBranch: branch }),
       where: "dropped",
     });
-    lines.push("Its conversation is saved with this folder's sessions (/resume, or /handoff status → dropped).");
+    lines.push("Its conversation is saved with this folder's sessions (/resume, or /detach status → dropped).");
   }
 
   progress("cleaning up the Sprite…");

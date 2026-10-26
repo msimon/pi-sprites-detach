@@ -38,6 +38,6 @@ test("IdleRule: never quits when tmux cannot be asked", () => {
 
 test("countClients counts non-empty lines", () => {
   assert.equal(countClients(""), 0);
-  assert.equal(countClients("/dev/pts/3: handoff-h9 [200x50 xterm] (utf8)\n"), 1);
+  assert.equal(countClients("/dev/pts/3: detach-h9 [200x50 xterm] (utf8)\n"), 1);
   assert.equal(countClients("a\nb\n\n"), 2);
 });

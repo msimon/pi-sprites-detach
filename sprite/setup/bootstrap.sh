@@ -1,10 +1,10 @@
 #!/bin/bash
-# bootstrap.sh [node-version]: what pi-handoff needs on a fresh Sprite. Idempotent.
+# bootstrap.sh [node-version]: what pi-sprites-detach needs on a fresh Sprite. Idempotent.
 #
 # Node at the laptop's version as the nvm default, pi as a managed install, a UTF-8
 # locale and git settings. Nothing else: CLI tools your extensions use (rg, fd,
 # ast-grep, agent-browser…) are optional and go in remote.tools in the config, which
-# /handoff sync installs at the laptop's version from the recipes in tools/.
+# /detach sync installs at the laptop's version from the recipes in tools/.
 # Interactive logins are not done here; run them yourself afterwards:
 #   sprite exec -s <sprite> --tty -- pi        then /login for each model provider
 #   sprite exec -s <sprite> --tty -- bash -lc 'gh auth login && gh auth setup-git'

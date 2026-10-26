@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { PACKAGE_ROOT } from "./paths.ts";
 
 test("SKILL.md frontmatter: plain one-line values with no YAML-breaking ': ' or ' #'", () => {
-  const text = readFileSync(join(PACKAGE_ROOT, "skills", "pi-handoff", "SKILL.md"), "utf8");
+  const text = readFileSync(join(PACKAGE_ROOT, "skills", "detach", "SKILL.md"), "utf8");
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
   assert.ok(match, "frontmatter between --- lines");
   const fields = Object.fromEntries(
@@ -17,7 +17,7 @@ test("SKILL.md frontmatter: plain one-line values with no YAML-breaking ': ' or 
       return [line.slice(0, colon), line.slice(colon + 2)];
     }),
   );
-  assert.equal(fields.name, "pi-handoff");
+  assert.equal(fields.name, "detach");
   for (const [key, value] of Object.entries(fields)) {
     assert.doesNotMatch(value as string, /: | #/, `${key} needs quoting to be valid YAML`);
   }

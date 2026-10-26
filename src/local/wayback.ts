@@ -3,11 +3,11 @@
 // - pr: auto and the job opened a pull request: the PR is the way back (merge it, then
 //   git pull); nothing local changes.
 // - Otherwise: fast-forward the base branch to the job branch, when the folder is still
-//   on that branch at the commit handed off. Uncommitted changes there are fine: the
+//   on that branch at the commit the job started from. Uncommitted changes there are fine: the
 //   job branch starts with them (the snapshot commit), and anything edited since is
 //   merged back on top, uncommitted, unless it conflicts with the job's changes.
 // - Anything else changes nothing and says why. `pending` cases (wrong branch checked
-//   out, conflicting edits, gh failing) can be retried with /handoff pull <job>.
+//   out, conflicting edits, gh failing) can be retried with /detach pull <job>.
 
 import { lstatSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -73,7 +73,7 @@ export async function bringWorkBack(job: LocalJob, deps: { findPr?: FindPullRequ
   const remoteRef = `refs/remotes/origin/${branch}`;
   const jobHead = await gitOk(["rev-parse", "--verify", remoteRef]);
   const onOrigin = `origin/${branch}`;
-  const again = `run /handoff pull ${job.jobId} again`;
+  const again = `run /detach pull ${job.jobId} again`;
   const yourself = `merge origin/${branch} yourself`;
   const pending = (text: string): WayBack => ({ kind: "pending", where: onOrigin, text });
   const manual = (text: string): WayBack => ({ kind: "manual", where: onOrigin, text });
@@ -110,16 +110,16 @@ export async function bringWorkBack(job: LocalJob, deps: { findPr?: FindPullRequ
   if (head !== baseHead) {
     const count = await git(["rev-list", "--count", `${baseHead}..HEAD`]);
     const n = Number(count.stdout.trim());
-    const moved = count.code === 0 && n > 0 ? `has ${plural(n, "commit")} since the handoff` : "moved since the handoff";
+    const moved = count.code === 0 && n > 0 ? `has ${plural(n, "commit")} since detaching` : "moved since detaching";
     return manual(`Not brought into ${job.folder}: ${base} ${moved}. Merge origin/${branch} into it yourself.`);
   }
   if ((await git(["merge-base", "--is-ancestor", baseHead, jobHead])).code !== 0) {
-    return manual(`origin/${branch} no longer builds on the commit that was handed off: ${yourself}.`);
+    return manual(`origin/${branch} no longer builds on the commit the job started from: ${yourself}.`);
   }
 
-  // S: where the folder's uncommitted work started (the snapshot, or the commit handed off).
+  // S: where the folder's uncommitted work started (the snapshot, or the commit the job started from).
   const start = job.snapshotSha ?? (job.snapshot === true ? await oldSnapshot(gitOk, baseHead, jobHead) : baseHead);
-  if (start === undefined) return manual(`Cannot tell the changes handed off from later ones: ${yourself}.`);
+  if (start === undefined) return manual(`Cannot tell the changes that went with the job from later ones: ${yourself}.`);
   // W: the folder now. Merged with the job's work (J) from S, without touching anything.
   const now = await worktreeTree(repoRoot);
   const kept = now !== (await gitOk(["rev-parse", `${start}^{tree}`]));
@@ -128,7 +128,7 @@ export async function bringWorkBack(job: LocalJob, deps: { findPr?: FindPullRequ
   if (merged.code === 1) {
     const files = rest.slice(0, rest.indexOf("") === -1 ? undefined : rest.indexOf("")).filter((f) => f !== "");
     return pending(
-      `Not brought into ${job.folder}: the changes made there since the handoff conflict with the job's in ${files.join(", ") || "some files"}. Commit or stash them and ${yourself}, or undo them and ${again}.`,
+      `Not brought into ${job.folder}: the changes made there since detaching conflict with the job's in ${files.join(", ") || "some files"}. Commit or stash them and ${yourself}, or undo them and ${again}.`,
     );
   }
   const Again = `${again[0]?.toUpperCase()}${again.slice(1)}`;
@@ -149,11 +149,11 @@ export async function bringWorkBack(job: LocalJob, deps: { findPr?: FindPullRequ
   if (deleted.code === 0) await git(["update-ref", "-d", remoteRef]);
   const parts = [
     n === 0 ? `The job made no commits; ${base} is unchanged.` : `${base} was fast-forwarded to the job's work (${plural(n, "commit")}).`,
-    ...(job.snapshotSha !== undefined || job.snapshot === true ? ["The uncommitted changes that went with the handoff are in it as a snapshot commit."] : []),
-    ...(kept ? ["Changes made in the folder since the handoff are still there, uncommitted."] : []),
+    ...(job.snapshotSha !== undefined || job.snapshot === true ? ["The uncommitted changes that went with the detach are in it as a snapshot commit."] : []),
+    ...(kept ? ["Changes made in the folder since detaching are still there, uncommitted."] : []),
     deleted.code === 0
       ? `Deleted ${branch} on origin.`
-      : `Could not delete ${branch} on origin (${(deleted.stderr || deleted.stdout).trim()}): /handoff cleanup ${job.jobId} --remote removes it.`,
+      : `Could not delete ${branch} on origin (${(deleted.stderr || deleted.stdout).trim()}): /detach cleanup ${job.jobId} --remote removes it.`,
     ...(n === 0 ? [] : [`${base} is not pushed yet.`]),
   ];
   return { kind: "fast-forwarded", where: `on ${base}`, text: parts.join(" "), jobHead, branchDeleted: deleted.code === 0 };
@@ -204,7 +204,7 @@ async function applyFastForward(
 ): Promise<string | undefined> {
   const git = (args: string[]) => run("git", args, { cwd: repoRoot, timeoutMs: 300_000 });
   const ref = `refs/heads/${base}`;
-  const moved = await git(["update-ref", "-m", `pi-handoff: fast-forward to ${branch}`, ref, jobHead, baseHead]);
+  const moved = await git(["update-ref", "-m", `pi-sprites-detach: fast-forward to ${branch}`, ref, jobHead, baseHead]);
   if (moved.code !== 0) return `${base} moved while the work was being brought back (${moved.stderr.trim()})`;
 
   const index = await indexFile(repoRoot);
@@ -220,7 +220,7 @@ async function applyFastForward(
       const done = await git(step);
       // update-index --refresh exits 1 when entries need updating; read-tree -m checks for itself.
       if (done.code !== 0 && step[0] !== "update-index") {
-        await git(["update-ref", "-m", "pi-handoff: fast-forward undone", ref, baseHead, jobHead]);
+        await git(["update-ref", "-m", "pi-sprites-detach: fast-forward undone", ref, baseHead, jobHead]);
         if (hadIndex) await copyIndex(backup, index);
         else await rm(index, { force: true });
         return (done.stderr || done.stdout).trim().split("\n")[0] ?? "git read-tree failed";

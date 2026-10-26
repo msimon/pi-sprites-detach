@@ -1,9 +1,9 @@
-// pi-handoff remote extension, loaded only on the Sprite by detach-run
-// (`pi -e ~/.pi-sprites-detach/sprite/extension/index.ts`). Does nothing outside a handoff run.
+// pi-sprites-detach remote extension, loaded only on the Sprite by detach-run
+// (`pi -e ~/.pi-sprites-detach/sprite/extension/index.ts`). Does nothing outside a detach run.
 //
 // - adds the remote briefing to the system prompt on every run
 // - records the final assistant text for the notification
-// - in a joined pi (/handoff join, DETACH_JOINED): the briefing says the user is
+// - in a joined pi (/attach, DETACH_JOINED): the briefing says the user is
 //   present, and pi quits once idle with nobody attached to its tmux session
 //
 // Asking the user is not built in: a user extension provides ask_user_question
@@ -19,7 +19,7 @@ import type { RemoteJob } from "./job.ts";
 
 const RESULT_MAX_CHARS = 4000;
 
-export default function handoffRemote(pi: ExtensionAPI): void {
+export default function detachRemote(pi: ExtensionAPI): void {
   const jobDir = process.env.DETACH_DIR;
   if (process.env.DETACH_JOB_ID === undefined || jobDir === undefined) return;
   const joined = process.env.DETACH_JOINED === "1";
@@ -29,7 +29,7 @@ export default function handoffRemote(pi: ExtensionAPI): void {
     job = JSON.parse(readFileSync(join(jobDir, "job.json"), "utf8")) as RemoteJob;
   } catch (error: unknown) {
     // Lands in runner.log. Without the job there is no briefing to give, so do nothing.
-    process.stderr.write(`[pi-handoff] cannot read ${jobDir}/job.json: ${String(error)}\n`);
+    process.stderr.write(`[pi-sprites-detach] cannot read ${jobDir}/job.json: ${String(error)}\n`);
     return;
   }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# detach-stop <jobId>: stop a job's run in progress (/handoff pull --abort, the job
+# detach-stop <jobId>: stop a job's run in progress (/detach pull --abort, the job
 # browser's Abort).
 #
 # First the `stop` marker, so the runner's TERM trap records `aborted` (not an

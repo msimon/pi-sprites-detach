@@ -1,6 +1,6 @@
-// What pi-handoff draws in the chat.
+// What pi-sprites-detach draws in the chat.
 //
-// - The outcome card: a job's result in the chat of the session it was handed off
+// - The outcome card: a job's result in the chat of the session it was detached
 //   from. A custom session entry: saved with the conversation and drawn by pi, but
 //   never sent to the model. The agent's final message is Markdown, collapsed when long.
 // - The return line: the return briefing appended to a pulled job's conversation. A
@@ -11,10 +11,10 @@ import { getMarkdownTheme, keyText } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { conversationName, type JobState, type LocalJob } from "./jobs.ts";
 
-export const OUTCOME_ENTRY = "pi-handoff-outcome";
-export const RETURN_MESSAGE = "pi-handoff-return";
-/** A job's context brought into another conversation (/handoff pull --here). */
-export const CONTEXT_MESSAGE = "pi-handoff-context";
+export const OUTCOME_ENTRY = "pi-detach-outcome";
+export const RETURN_MESSAGE = "pi-detach-return";
+/** A job's context brought into another conversation (/detach pull --here). */
+export const CONTEXT_MESSAGE = "pi-detach-context";
 
 export interface ReturnDetails {
   jobId: string;
@@ -84,9 +84,9 @@ export function buildOutcomeCard(job: LocalJob, options: { full?: boolean } = {}
   const footer: string[] = [];
   if (job.jobBranch !== undefined) footer.push(`Branch ${job.jobBranch} on origin.`);
   if (job.state === "done" || job.state === "needs_input" || job.state === "error" || job.state === "aborted") {
-    footer.push(`Continue there: /handoff reply ${job.jobId} <text>`);
-    footer.push(`Bring it back:  /handoff pull ${job.jobId} --switch  (or --here: its context into this conversation)`);
-    footer.push(`Don't want it:  /handoff drop ${job.jobId}  (discards its work, keeps its conversation)`);
+    footer.push(`Continue there: /detach reply ${job.jobId} <text>`);
+    footer.push(`Bring it back:  /detach pull ${job.jobId} --switch  (or --here: its context into this conversation)`);
+    footer.push(`Don't want it:  /detach drop ${job.jobId}  (discards its work, keeps its conversation)`);
   }
   return {
     jobId: job.jobId,
@@ -144,29 +144,46 @@ function renderCard(card: OutcomeCard, expanded: boolean, theme: Theme): Compone
   return box;
 }
 
+/** The entry names from before the rename (pi-handoff): sessions saved then still use them. */
+const LEGACY_NAMES = {
+  outcome: "pi-handoff-outcome",
+  return: "pi-handoff-return",
+  context: "pi-handoff-context",
+} as const;
+
+/** Whether a custom entry is a return briefing, under either name. */
+export const isReturnMessage = (customType: string | undefined): boolean =>
+  customType === RETURN_MESSAGE || customType === LEGACY_NAMES.return;
+
 export function registerOutcomeRenderer(pi: ExtensionAPI): void {
-  pi.registerEntryRenderer<OutcomeCard>(OUTCOME_ENTRY, (entry, { expanded }, theme) =>
-    entry.data === undefined ? undefined : renderCard(entry.data, expanded, theme),
-  );
-  pi.registerMessageRenderer<ReturnDetails>(RETURN_MESSAGE, (message, { expanded }, theme) => {
-    const d = message.details;
-    const where = d?.where ?? d?.worktree ?? (d?.jobBranch === undefined ? "conversation only" : `origin/${d.jobBranch}`);
-    const line = `${theme.fg("accent", "☁ Back from the Sprite")}${theme.fg("muted", ` · job ${d?.jobId ?? "?"} · ${where}`)}`;
-    if (!expanded) return new Text(line, 1, 0);
-    const text = typeof message.content === "string" ? message.content : "";
-    return new Text(`${line}\n${theme.fg("dim", text)}`, 1, 0);
-  });
-  pi.registerMessageRenderer<ContextDetails>(CONTEXT_MESSAGE, (message, { expanded }, theme) => {
-    const d = message.details;
-    const branch = d?.jobBranch === undefined ? "" : ` · origin/${d.jobBranch}`;
-    const hint = expanded ? "" : ` · ${keyText("app.tools.expand")} to read`;
-    const line = `${theme.fg("accent", `☁ Context from job ${d?.jobId ?? "?"}`)}${theme.fg("muted", `${branch}${hint}`)}`;
-    if (!expanded) return new Text(line, 1, 0);
-    const text = typeof message.content === "string" ? message.content : "";
-    const box = new Box(1, 0);
-    box.addChild(new Text(line, 0, 0));
-    box.addChild(new Spacer(1));
-    box.addChild(new Markdown(text, 0, 0, getMarkdownTheme(), { color: (t) => theme.fg("toolOutput", t) }));
-    return box;
-  });
+  for (const name of [OUTCOME_ENTRY, LEGACY_NAMES.outcome]) {
+    pi.registerEntryRenderer<OutcomeCard>(name, (entry, { expanded }, theme) =>
+      entry.data === undefined ? undefined : renderCard(entry.data, expanded, theme),
+    );
+  }
+  for (const name of [RETURN_MESSAGE, LEGACY_NAMES.return]) {
+    pi.registerMessageRenderer<ReturnDetails>(name, (message, { expanded }, theme) => {
+      const d = message.details;
+      const where = d?.where ?? d?.worktree ?? (d?.jobBranch === undefined ? "conversation only" : `origin/${d.jobBranch}`);
+      const line = `${theme.fg("accent", "☁ Back from the Sprite")}${theme.fg("muted", ` · job ${d?.jobId ?? "?"} · ${where}`)}`;
+      if (!expanded) return new Text(line, 1, 0);
+      const text = typeof message.content === "string" ? message.content : "";
+      return new Text(`${line}\n${theme.fg("dim", text)}`, 1, 0);
+    });
+  }
+  for (const name of [CONTEXT_MESSAGE, LEGACY_NAMES.context]) {
+    pi.registerMessageRenderer<ContextDetails>(name, (message, { expanded }, theme) => {
+      const d = message.details;
+      const branch = d?.jobBranch === undefined ? "" : ` · origin/${d.jobBranch}`;
+      const hint = expanded ? "" : ` · ${keyText("app.tools.expand")} to read`;
+      const line = `${theme.fg("accent", `☁ Context from job ${d?.jobId ?? "?"}`)}${theme.fg("muted", `${branch}${hint}`)}`;
+      if (!expanded) return new Text(line, 1, 0);
+      const text = typeof message.content === "string" ? message.content : "";
+      const box = new Box(1, 0);
+      box.addChild(new Text(line, 0, 0));
+      box.addChild(new Spacer(1));
+      box.addChild(new Markdown(text, 0, 0, getMarkdownTheme(), { color: (t) => theme.fg("toolOutput", t) }));
+      return box;
+    });
+  }
 }

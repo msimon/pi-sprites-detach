@@ -1,4 +1,4 @@
-// /handoff watch: follow a job's run live, or replay its last one, in a read-only
+// /detach watch: follow a job's run live, or replay its last one, in a read-only
 // full-screen view. detach-watch on the Sprite prints pi's JSON events; this process
 // reads them over `sprite exec` and a Transcript turns them into what is drawn. Closing
 // the view kills the `sprite exec`, which ends the stream (and detach-watch with it).

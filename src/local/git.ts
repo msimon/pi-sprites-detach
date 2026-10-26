@@ -43,12 +43,12 @@ export async function detectGit(folder: string): Promise<GitInfo | undefined> {
   const origin = await run("git", ["config", "--get", "remote.origin.url"], { cwd: repoRoot });
   if (origin.code !== 0) {
     throw new Error(
-      `${repoRoot} has no "origin" remote. pi-handoff moves the work through a branch pushed to origin, which the Sprite clones. Add one (git remote add origin <url>, for example a private GitHub repo) and run /handoff again.`,
+      `${repoRoot} has no "origin" remote. pi-sprites-detach moves the work through a branch pushed to origin, which the Sprite clones. Add one (git remote add origin <url>, for example a private GitHub repo) and run /detach again.`,
     );
   }
   const head = await run("git", ["rev-parse", "--verify", "HEAD"], { cwd: repoRoot });
   if (head.code !== 0) {
-    throw new Error(`${repoRoot} has no commits yet. pi-handoff needs one to branch from: commit something and run /handoff again.`);
+    throw new Error(`${repoRoot} has no commits yet. pi-sprites-detach needs one to branch from: commit something and run /detach again.`);
   }
   const branch = await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: repoRoot });
 
@@ -77,7 +77,7 @@ export async function snapshotCommit(info: GitInfo): Promise<{ sha: string; snap
     "-p",
     info.head,
     "-m",
-    "pi-handoff: snapshot of uncommitted work\n\nCommitted by /handoff so the work travels with the job.",
+    "pi-sprites-detach: snapshot of uncommitted work\n\nCommitted by /detach so the work travels with the job.",
   ]);
   return { sha, snapshot: true };
 }
@@ -150,14 +150,14 @@ export interface BaseDecision {
   note?: string;
 }
 
-/** The user stopped the handoff (origin has commits the local branch lacks). */
-export class HandoffCancelledError extends Error {}
+/** The user stopped the detach (origin has commits the local branch lacks). */
+export class DetachCancelledError extends Error {}
 
 /**
  * For a job that will open a pull request: make sure its base branch is on origin
  * with the local commits, so the PR has the right base. Pushes HEAD when origin's
  * branch is missing or behind (hooks run: it is the user's real branch; never forced).
- * A failed push fails the handoff. When origin has commits the local branch lacks, a
+ * A failed push fails the detach. When origin has commits the local branch lacks, a
  * PR would mix them in: `ask` offers to continue without one or to cancel; with no
  * way to ask, the job goes without a PR.
  */
@@ -172,10 +172,10 @@ export async function prepareBase(
   if (state === "same") return { pr: "auto" };
   if (state === "ahead") {
     const why = `origin/${branch} has commits your local ${branch} does not, so a pull request from this job would mix them in`;
-    if (ask === undefined) return { pr: "never", note: `No pull request: ${why}. The work comes back with /handoff pull.` };
+    if (ask === undefined) return { pr: "never", note: `No pull request: ${why}. The work comes back with /detach pull.` };
     const choice = await ask(`${why}.`, [CONTINUE_WITHOUT_PR, CANCEL_TO_PULL]);
     if (choice === CONTINUE_WITHOUT_PR) return { pr: "never", note: `No pull request: ${why}.` };
-    throw new HandoffCancelledError(`Handoff cancelled. Bring ${branch} up to date (git pull), then hand off again.`);
+    throw new DetachCancelledError(`Detach cancelled. Bring ${branch} up to date (git pull), then detach again.`);
   }
   progress(`pushing ${branch} to origin…`);
   const ref = `refs/heads/${branch}`;

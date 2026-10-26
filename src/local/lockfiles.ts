@@ -1,5 +1,5 @@
 // Package managers a repo needs on the Sprite. npm comes with Node; the others only
-// get there through remote.tools, so a handoff checks for them up front instead of
+// get there through remote.tools, so a detach checks for them up front instead of
 // letting the agent hit a missing command on the Sprite.
 
 import { existsSync } from "node:fs";

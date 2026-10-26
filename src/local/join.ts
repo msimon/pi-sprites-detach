@@ -1,4 +1,4 @@
-// /handoff join: work with a job's agent live on the Sprite, without pulling.
+// /attach: work with a job's agent live on the Sprite, without pulling.
 //
 // detach-join starts interactive pi on the job's conversation in the tmux session
 // detach-<jobId> on the Sprite (or finds it running); this window then opens a
@@ -63,7 +63,7 @@ export async function joinJob(
   if (result.refused === "running") {
     if (merged !== undefined) await writeJob(merged);
     throw new RunInProgressError(
-      `${job.jobId} is running. Stop the run and join with /handoff join ${job.jobId} --abort, or join once it finishes.`,
+      `${job.jobId} is running. Stop the run and attach with /attach ${job.jobId} --abort, or attach once it finishes.`,
     );
   }
 

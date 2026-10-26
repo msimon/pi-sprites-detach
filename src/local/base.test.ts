@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { g } from "./git-fixture.ts";
-import { CANCEL_TO_PULL, CONTINUE_WITHOUT_PR, HandoffCancelledError, prepareBase, type GitInfo } from "./git.ts";
+import { CANCEL_TO_PULL, CONTINUE_WITHOUT_PR, DetachCancelledError, prepareBase, type GitInfo } from "./git.ts";
 
 const root = mkdtempSync(join(tmpdir(), "pi-detach-base-test-"));
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -101,10 +101,10 @@ for (const diverge of [false, true]) {
     assert.equal(originTip(origin, "feat"), before);
   });
 
-  test(`base ${name} on origin: Cancel (or Esc) stops the handoff`, async () => {
+  test(`base ${name} on origin: Cancel (or Esc) stops the detach`, async () => {
     const { work } = originAhead(diverge);
     for (const answer of [CANCEL_TO_PULL, undefined]) {
-      await assert.rejects(prepareBase(info(work), "feat", async () => answer, quiet), HandoffCancelledError);
+      await assert.rejects(prepareBase(info(work), "feat", async () => answer, quiet), DetachCancelledError);
     }
   });
 }
@@ -113,10 +113,10 @@ test("base ahead on origin with no UI: goes without a PR", async () => {
   const { work } = originAhead(false);
   const decision = await prepareBase(info(work), "feat", undefined, quiet);
   assert.equal(decision.pr, "never");
-  assert.match(decision.note ?? "", /comes back with \/handoff pull/);
+  assert.match(decision.note ?? "", /comes back with \/detach pull/);
 });
 
-test("a pre-push hook that rejects the push fails the handoff", async () => {
+test("a pre-push hook that rejects the push fails the detach", async () => {
   const { origin, work } = setup();
   const hook = join(work, ".git", "hooks", "pre-push");
   writeFileSync(hook, "#!/bin/sh\necho 'secret found' >&2\nexit 1\n");

@@ -110,7 +110,7 @@ test("drop: branch deleted, conversation saved with a briefing, Sprite cleaned, 
   const saved = job.pulledSessionFile as string;
   const entries = SessionManager.open(saved).getEntries();
   const last = entries.at(-1) as { customType?: string; content?: string };
-  assert.equal(last.customType, "pi-handoff-return");
+  assert.equal(last.customType, "pi-detach-return");
   assert.match(last.content ?? "", /dropped this job: its work was discarded.*branch feat-detach-1 was deleted on origin/);
   assert.equal(JSON.parse(readFileSync(saved, "utf8").split("\n")[0] as string).cwd, f.work);
   assert.match(lines.join(" "), /Deleted feat-detach-1 on origin\..*Removed from the Sprite\./);

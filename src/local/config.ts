@@ -20,7 +20,7 @@ async function installExamples(): Promise<void> {
   }
 }
 
-export interface HandoffConfig {
+export interface DetachConfig {
   /** Sprite for new jobs; each job records its own. */
   sprite: string;
   /**
@@ -49,7 +49,7 @@ export interface HandoffConfig {
   copyProjectFiles: string[];
 }
 
-export const DEFAULT_CONFIG: HandoffConfig = {
+export const DEFAULT_CONFIG: DetachConfig = {
   sprite: "pi-handoff",
   pr: "never",
   sync: {
@@ -67,9 +67,9 @@ export const DEFAULT_CONFIG: HandoffConfig = {
     exclude: ["**/.venv", "**/node_modules", "**/__pycache__", "**/.DS_Store", "**/*.lock"],
   },
   remote: {
-    // pi-handoff's own laptop extension: as a package (git:github.com/msimon/pi-handoff)
+    // pi-sprites-detach's own laptop extension: as a package (git:github.com/msimon/pi-sprites-detach)
     // it is excluded here; loaded from a repo path it is outside sync.paths anyway.
-    exclude: ["msimon/pi-handoff"],
+    exclude: ["msimon/pi-sprites-detach"],
     // Does nothing unless that package is installed; it hides its tool without a UI (S3).
     replace: { "npm:@juicesharp/rpiv-ask-user-question": "~/.pi-sprites-detach/extensions/remote-ask.ts" },
     // Filled in by the setup prompt, from the recipes the laptop has the tool for.
@@ -79,7 +79,7 @@ export const DEFAULT_CONFIG: HandoffConfig = {
 };
 
 export interface LoadedConfig {
-  config: HandoffConfig;
+  config: DetachConfig;
   /** Set when the file was created on this load. */
   created: boolean;
 }
@@ -101,9 +101,9 @@ export async function loadConfig(): Promise<LoadedConfig> {
     return { config: structuredClone(DEFAULT_CONFIG), created: true };
   }
 
-  let raw: Partial<HandoffConfig>;
+  let raw: Partial<DetachConfig>;
   try {
-    raw = JSON.parse(text) as Partial<HandoffConfig>;
+    raw = JSON.parse(text) as Partial<DetachConfig>;
   } catch (error: unknown) {
     throw new Error(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`);
   }
@@ -124,7 +124,7 @@ export async function loadConfig(): Promise<LoadedConfig> {
  * `copyProjectFiles` for a repo: `<repo>/.pi-sprites-detach.json` overrides the config
  * (`.pi-handoff.json`, the name before the rename, still works when the new one is absent).
  */
-export async function projectFilePatterns(repoRoot: string, config: HandoffConfig): Promise<string[]> {
+export async function projectFilePatterns(repoRoot: string, config: DetachConfig): Promise<string[]> {
   let file = join(repoRoot, ".pi-sprites-detach.json");
   let text: string | undefined;
   for (const name of [".pi-sprites-detach.json", ".pi-handoff.json"]) {
