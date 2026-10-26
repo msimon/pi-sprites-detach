@@ -10,11 +10,11 @@
 //   out, conflicting edits, gh failing) can be retried with /handoff pull <job>.
 
 import { lstatSync } from "node:fs";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, runOk } from "./exec.ts";
-import { indexFile, worktreeTree } from "./git.ts";
+import { copyIndex, indexFile, worktreeTree } from "./git.ts";
 import type { LocalJob } from "./jobs.ts";
 
 export type WayBackKind = "fast-forwarded" | "pr" | "worktree" | "pending" | "manual";
@@ -211,7 +211,7 @@ async function applyFastForward(
   const backup = join(tmp, "index");
   let hadIndex = true;
   try {
-    await copyFile(index, backup).catch(() => {
+    await copyIndex(index, backup).catch(() => {
       hadIndex = false;
     });
     const steps: string[][] = [["read-tree", worktree], ["update-index", "-q", "--refresh"], ["read-tree", "-m", "-u", worktree, result]];
@@ -220,7 +220,7 @@ async function applyFastForward(
       // update-index --refresh exits 1 when entries need updating; read-tree -m checks for itself.
       if (done.code !== 0 && step[0] !== "update-index") {
         await git(["update-ref", "-m", "pi-handoff: fast-forward undone", ref, baseHead, jobHead]);
-        if (hadIndex) await copyFile(backup, index);
+        if (hadIndex) await copyIndex(backup, index);
         else await rm(index, { force: true });
         return (done.stderr || done.stdout).trim().split("\n")[0] ?? "git read-tree failed";
       }

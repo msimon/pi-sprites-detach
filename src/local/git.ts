@@ -1,7 +1,7 @@
 // The laptop side of the git protocol. Nothing here moves a local ref, the index or
 // the working tree: the job branch exists only on origin.
 
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { run, runOk } from "./exec.ts";
@@ -91,7 +91,7 @@ export async function worktreeTree(repoRoot: string): Promise<string> {
   try {
     const tmpIndex = join(tmp, "index");
     try {
-      await copyFile(await indexFile(repoRoot), tmpIndex);
+      await copyIndex(await indexFile(repoRoot), tmpIndex);
     } catch {
       // No index yet: git builds one from scratch.
     }
@@ -101,6 +101,17 @@ export async function worktreeTree(repoRoot: string): Promise<string> {
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+/**
+ * Copy an index file with its timestamps. Git trusts an entry's stat data only when
+ * the file changed before the index was written ("racy git"); a copy stamped now
+ * would make a same-size edit from the same second look clean, and it would be missed.
+ */
+export async function copyIndex(from: string, to: string): Promise<void> {
+  await copyFile(from, to);
+  const { atime, mtime } = await stat(from);
+  await utimes(to, atime, mtime);
 }
 
 /** The repo's (or linked worktree's) real index file. */

@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { parseOrigin, projectPathspecs, pushNewJobBranch } from "./git.ts";
+import { copyIndex, parseOrigin, projectPathspecs, pushNewJobBranch } from "./git.ts";
+
+test("copyIndex keeps the index's timestamps, so git still re-checks racily clean entries", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-handoff-index-test-"));
+  try {
+    const from = join(root, "index");
+    writeFileSync(from, "x");
+    const past = new Date(Date.parse("2026-01-01T00:00:00Z"));
+    utimesSync(from, past, past);
+    await copyIndex(from, join(root, "copy"));
+    assert.equal(statSync(join(root, "copy")).mtimeMs, past.getTime());
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("pushNewJobBranch: concurrent pushes of the same commit get different branches", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-handoff-git-test-"));
