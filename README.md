@@ -76,7 +76,7 @@ Then run `/handoff sync` in pi. It copies your pi setup to the Sprite (see Confi
 | `/handoff [prompt]` | Hand this conversation off. Without a prompt, the agent is told to continue where you left off. |
 | `/handoff status [filter]` | Open the job browser. Filters: `all`, `running`, `joined`, `needs-input`, `done`, `failed`, `aborted`, `pulled`. |
 | `/handoff reply [job] [text]` | Start another run of a finished job: answer its question or ask for more work. Without text, pi asks (a question with options shows them as a menu). |
-| `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]` | Bring a job back: its conversation becomes a local session, its branch is fetched, and the Sprite is cleaned up. |
+| `/handoff pull [job] [--here] [--switch] [--abort] [--worktree]` | Bring a job back: its conversation becomes a local session, its work comes back, and the Sprite is cleaned up. The folder's branch is fast-forwarded to the job's work when it is still on that branch at the commit handed off (edits made since stay on top, uncommitted; conflicting ones stop it); with a pull request (`pr: auto`), the PR is the way back. When the work cannot come back yet (another branch checked out, conflicts), nothing changes and `/handoff pull <job>` again retries. `--worktree` checks the job branch out in a worktree instead. |
 | `/handoff join [job] [--abort]` | Work with a job's agent live on the Sprite, without pulling: pi opens in a cmux split next to this pane (outside cmux, pi-handoff prints the command to run in any terminal). Close the pane whenever you like: the agent finishes its turn, pi quits once nobody is attached, and the usual card appears. `--abort` stops a headless run first; without it pi asks. |
 | `/handoff watch [job]` | Follow a run as it happens, read-only, in a full-screen view: the agent's text, its tool calls with their output. On a finished job still on the Sprite it replays its last run. Scroll with ↑/↓ and PgUp/PgDn, `End` follows the latest line, `t` shows or hides the thinking (hidden by default), `e` unfolds the tool output, `Esc` closes (that stops the stream; the job keeps running). Not for a joined job: attach to it with `/handoff join`. |
 | `/handoff cleanup [job] [--discard] [--remote]` | Remove what a pull left on this laptop for a job: its worktree (from `pull --worktree`), the local branch made for it, and the fetched `origin/<branch>`. Only when its work is merged into the base branch (a squash-merged pull request counts), and not over uncommitted changes in the worktree; `--discard` removes it anyway. `--remote` also deletes the branch on origin. It shows what it will remove and asks first. The job's conversation is kept. |
@@ -120,7 +120,7 @@ The package also installs a skill and seven tools, so you can say "I have to lea
 ```json
 {
   "sprite": "pi-handoff",
-  "pr": "auto",
+  "pr": "never",
   "sync": {
     "paths": [
       "~/.pi/agent/AGENTS.md",
@@ -145,7 +145,7 @@ The package also installs a skill and seven tools, so you can say "I have to lea
 ```
 
 - `sprite`: the Sprite for new jobs.
-- `pr`: `auto` asks the agent to open a pull request when the work is pushed; `never` tells it not to.
+- `pr`: `never` (default) means no pull request: pull fast-forwards your branch to the job's work. `auto` asks the agent to open a pull request against your branch when the work is pushed; the branch is pushed to origin first if it is missing there or behind, and if origin has commits you lack, pi asks whether to go without a PR or cancel and `git pull` first.
 - `sync.paths`: exactly what is copied to the Sprite. Your `settings.json` always syncs as well, rewritten for the Sprite (the `remote` rules, home paths). A local extension runs on the Sprite only if its folder is listed here.
 - `sync.exclude`: globs skipped inside those paths.
 - `remote.exclude`: packages or extensions not loaded on the Sprite (substring match on `settings.json`'s `packages` and `extensions`).

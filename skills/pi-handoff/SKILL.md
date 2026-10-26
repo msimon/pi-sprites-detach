@@ -13,7 +13,7 @@ pi-handoff moves a conversation to a cloud machine. The agent there keeps workin
 | --- | --- | --- |
 | `handoff_status` | Lists jobs, or shows one in full (state, branch, question, last message) | no |
 | `handoff_reply` | Starts another run of a finished job: an answer to its question, or more work | no |
-| `handoff_pull` | Brings a finished job back and returns a summary of what it did, its commits and final message | yes |
+| `handoff_pull` | Brings a finished job back (its work into the folder when it can) and returns a summary of what it did, its commits, where its code is and its final message | yes |
 | `handoff_join` | Opens a terminal for the user on a finished job (they type there, not you) | only with `abort` |
 | `handoff_abort` | Stops a run in progress | yes |
 | `handoff_cleanup` | Removes a pulled, merged job's worktree and local branches (nothing on origin) | yes |
@@ -33,11 +33,11 @@ pi-handoff moves a conversation to a cloud machine. The agent there keeps workin
 - `done`: finished. Read its last message with `handoff_status`, then reply for more work or pull it.
 - `failed`, `aborted`: ended early. Look at the error or last message, then reply to try again, or pull what is there.
 - `joined`: the user is working on it live; leave it alone.
-- `pulled`: brought back. Its conversation is saved locally; `handoff_pull` on it only returns the summary again.
+- `pulled`: brought back. Its conversation is saved locally; `handoff_pull` on it returns the summary again, or first retries bringing its work into the folder if that could not happen at pull (`handoff_status` shows "Its work: …").
 
 ## Bringing a job back
 
-`handoff_pull` returns what the job did, and that is context for you, not changes in this working directory. The job's code is on its branch (`origin/<branch>`). **Do not merge, cherry-pick or copy it unless the user asks.** Say where it is and what it contains, and let them decide.
+`handoff_pull` returns what the job did, and where its code is now. By default pull fast-forwards the folder's branch to the job's work (edits made in the folder since the handoff stay on top, uncommitted); with a pull request, the code waits in the PR; when neither could happen, it stays on `origin/<branch>` and the summary says why. **Do not merge, cherry-pick or copy the job's code yourself unless the user asks.** Say where it is and what it contains, and let them decide. After a fast-forward, the branch is not pushed: leave that to the user.
 
 ## Answering a job's question
 
