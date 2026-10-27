@@ -100,6 +100,27 @@ job_pids() {
   done
 }
 
+# proc_running <pid>: the process exists and has not exited. Works on a root-owned
+# child (kill -0 would say EPERM) and on an unreaped one (a zombie until `wait`).
+proc_running() {
+  local s
+  s=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  s=${s##*) }
+  [ "${s%% *}" != Z ]
+}
+
+# end_job_pids <jobId>: TERM the job's pi and tools, KILL whatever is left after 20 s.
+end_job_pids() {
+  # shellcheck disable=SC2046  # one pid per word
+  kill -TERM $(job_pids "$1") 2>/dev/null
+  for _ in $(seq 40); do
+    [ -n "$(job_pids "$1")" ] || return 0
+    sleep 0.5
+  done
+  # shellcheck disable=SC2046
+  kill -KILL $(job_pids "$1") 2>/dev/null
+}
+
 # json_merge <file> <json>: shallow-merge a JSON object into a JSON file, atomically.
 json_merge() {
   local file=$1 patch=$2 tmp

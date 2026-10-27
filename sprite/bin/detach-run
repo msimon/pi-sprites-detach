@@ -32,6 +32,8 @@ if [ ! -f "$job_json" ]; then
 fi
 
 MAX_INTERRUPTIONS=2
+# Seconds pi may stay alive, silent, after settling with an answer or a question.
+SETTLE_GRACE=60
 RESUME_PROMPT="Your previous run was interrupted before it finished (the Sprite restarted or the process was killed). Check the current state of the work (git status, the files you were changing, tests) and continue the task from where it stopped."
 
 exec >>"$dir/runner.log" 2>&1
@@ -185,6 +187,36 @@ run_pi() {
 # pi got to the end of its turn: it left an answer or a question.
 pi_finished() { [ -s "$dir/question.json" ] || [ -s "$dir/result.json" ]; }
 
+# pi is done for good: it left an answer or a question, and its last event says it
+# settled (agent_end can come more than once a run: retries, compaction).
+pi_settled() {
+  pi_finished &&
+    [ "$(tail -n 1 "$dir/events.jsonl" 2>/dev/null | jq -r '.type // empty' 2>/dev/null)" = agent_settled ]
+}
+
+# run_pi_watched <prompt>: run_pi, with a watchdog. pi -p only exits once its event
+# loop is empty, so a handle an extension leaks (pi-lens's LSP reader timer, 2026-10-27)
+# keeps it alive after its turn, and with it this run, its hold and the Sprite. Once
+# pi has settled and written nothing for SETTLE_GRACE seconds, end it and return the
+# turn's outcome from result.json, as the resume path does.
+run_pi_watched() {
+  local pid quiet=0 size last=
+  run_pi "$1" &
+  pid=$!
+  while proc_running "$pid"; do
+    sleep 5 & wait $!   # wait, not a foreground sleep: a TERM is handled at once
+    pi_settled || { quiet=0; last=; continue; }
+    size=$(stat -c %s "$dir/events.jsonl" 2>/dev/null)
+    if [ "$size" = "$last" ]; then quiet=$((quiet + 5)); else quiet=0; last=$size; fi
+    [ "$quiet" -ge "$SETTLE_GRACE" ] || continue
+    echo "== $(now) pi settled ${SETTLE_GRACE}s ago but has not exited (a leaked handle); ending it"
+    end_job_pids "$job"
+    wait "$pid"
+    return "$(jq -r 'if .error then 1 else 0 end' "$dir/result.json" 2>/dev/null || echo 0)"
+  done
+  wait "$pid"
+}
+
 # Count an interruption; past the limit the run ends in `error`.
 interruption() {
   local n
@@ -242,7 +274,7 @@ fi
 while [ -z "$rc" ]; do
   set_status '{"state":"running"}'
   echo "== $(now) pi start"
-  run_pi "$prompt"
+  run_pi_watched "$prompt"
   rc=$?
   echo "== $(now) pi exit $rc"
   # Killed by a signal nobody here sent (no stop marker), before the end of its turn.
