@@ -174,6 +174,8 @@ The package also installs a skill and seven tools, so you can say "I have to lea
 
 ## Development
 
+How it works inside, the design decisions, and what was learned about Sprites and pi while building it: [docs/architecture.md](docs/architecture.md).
+
 ```sh
 npm install
 npm test
